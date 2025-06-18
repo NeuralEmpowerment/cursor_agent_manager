@@ -1,11 +1,11 @@
-# Agent Monitor POC
+# Cursor Agent Manager
 
 This project is a **Proof of Concept (POC)** for macOS that demonstrates how to build a screen monitoring utility. Its primary goal is to show how one can monitor a specific region of the screen to track the state of an AI assistant, such as the one in the Cursor IDE.
 
-**This is not a production-ready application.** Instead, it serves as a technical example, complete with a simple UI, state management, and multi-modal detection strategies (template matching, OCR). It's a good starting point for anyone looking to build tools that interact with GUIs on macOS.
+**This is not a production-ready application.** Instead, it serves as a technical example, complete with a modern UI featuring emoji status indicators, professional asset organization, state management, and multi-modal detection strategies (template matching, OCR). It's a good starting point for anyone looking to build tools that interact with GUIs on macOS.
 
 ## Table of Contents
-- [Agent Monitor POC](#agent-monitor-poc)
+- [Cursor Agent Manager](#cursor-agent-manager)
   - [Table of Contents](#table-of-contents)
   - [Features](#features)
   - [Architecture](#architecture)
@@ -36,7 +36,8 @@ This project is a **Proof of Concept (POC)** for macOS that demonstrates how to 
   - Customizable sound alerts.
   - Visual indicators in the control panel.
 - **Flexible Control**:
-  - Floating control panel for easy access.
+  - Modern floating control panel with emoji status indicators (💤 idle, 🚀 active, ❓ unknown).
+  - Enhanced UI formatting with improved spacing and typography.
   - Mute/unmute sound alerts.
   - Pause/resume monitoring.
   - Debug view for real-time detection visualization.
@@ -193,20 +194,37 @@ agent_monitor_poc/
 ├── container.py             # Dependency injection container
 ├── analytics_cli.py         # Analytics command-line interface
 ├── run_analytics.sh         # Analytics CLI wrapper script
+├── assets/                  # Organized asset directory
+│   ├── README.md           # Asset organization documentation
+│   ├── ui/                 # User interface assets
+│   │   └── buttons/        # UI button template images
+│   │       ├── idle_button.png
+│   │       ├── generating_button.png
+│   │       └── run_button.png
+│   └── audio/              # Audio assets
+│       ├── alerts/         # Sound notification files
+│       │   ├── alert_*.wav # Various alert sound files
+│       └── scripts/        # Audio generation utilities
+│           ├── sound_generator.py
+│           ├── create_alert.py
+│           └── custom_alert_example.py
 ├── telemetry/               # Telemetry package
 │   ├── models.py           # Database models and schemas
 │   ├── interfaces.py       # Protocol definitions
 │   ├── sqlite_repository.py # SQLite implementation
 │   ├── telemetry_service.py # Telemetry service
 │   └── analytics.py        # Analytics service
+├── tests/                   # Test infrastructure
+│   ├── README.md           # Test documentation
+│   ├── test_quickstart.py  # Quickstart demonstration script
+│   └── test_telemetry.py   # Telemetry system tests
 ├── database/               # Database files (git-ignored)
 │   ├── telemetry.db       # SQLite database
 │   └── charts/            # Generated charts
-├── audio/                 # Sound alert files
 ├── requirements.txt       # Python dependencies
 ├── TELEMETRY_README.md    # Detailed telemetry documentation
 ├── DEV_QUICKSTART.md      # Developer quickstart guide
-├── quickstart_test.py     # Quickstart demonstration script
+├── run_tests.sh           # Test execution script
 └── venv/                  # Virtual environment
 ```
 
@@ -223,21 +241,29 @@ agent_monitor_poc/
 ## Configuration
 
 ### Template Images
-1. Place template images in the application directory:
-   - `generating_button.png`: AI agent's active state indicator
-   - `idle_button.png`: AI agent's idle state indicator
+Template images are now organized in the `assets/ui/buttons/` directory:
+   - `assets/ui/buttons/generating_button.png`: AI agent's active state indicator
+   - `assets/ui/buttons/idle_button.png`: AI agent's idle state indicator
+   - `assets/ui/buttons/run_button.png`: AI agent ready but waiting for user action
 
 You can create these images by:
 1. Taking a screenshot when the AI agent is in each state
 2. Cropping to include just the state indicator
-3. Saving in PNG format
+3. Saving in PNG format in the appropriate assets directory
 
 ### Sound Alerts
-Place sound files in the `audio/` directory:
+Sound files are organized in the `assets/audio/alerts/` directory:
 - `alert_waiting.wav`: Played when agent becomes idle
 - `alert_thinking.wav`: Played when agent starts processing
 - `alert_completed.wav`: Played when task completes
 - `alert_error.wav`: Played on errors
+- `alert_success.wav`: Played on successful completion
+- `alert_warning.wav`: Played for warnings
+- `alert_notification.wav`: General notification sound
+- `alert_ascending.wav` & `alert_descending.wav`: Tone-based alerts
+- `alert_custom_tada.wav`: Custom celebration sound
+
+Audio generation utilities are available in `assets/audio/scripts/` for creating custom alert sounds.
 
 ## Development
 
@@ -249,7 +275,7 @@ This section provides guidance for modifying and extending the application.
 2.  **Code**: Modify the Python source code, particularly `agent_monitor_poc.py`.
 3.  **Run**: Execute `./run.sh` to test your changes.
 4.  **Debug**: Use the "Show Debug View" button on the control panel to see a live view of the screen captures and detection rectangles, which helps validate template matching.
-5.  **Test Analytics**: Run `python3 test_telemetry.py` to verify telemetry integration and `python3 quickstart_test.py` for a full demonstration.
+5.  **Test Analytics**: Run `./run_tests.sh` to execute the comprehensive test suite, or run individual tests with `python3 tests/test_telemetry.py` and `python3 tests/test_quickstart.py`.
 
 ### Roadmap
 
