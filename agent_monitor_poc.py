@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Agent Monitor POC (macOS, Cursor IDE)
+Cursor Agent Monitor POC (macOS, Cursor IDE)
 
 Advanced architecture with:
 1. Modular state detection via Strategy Pattern (Template, OCR, Vision)
@@ -34,20 +34,21 @@ import logging
 import AppKit
 import objc
 from Foundation import NSObject, NSMakeRect, NSMakePoint, NSLayoutConstraint
-
+########################################################
+# === Configuration ===
+########################################################
 # === Enhanced Detection Config ===
-IDLE_TEMPLATES = [
-    "assets/ui-cursor/idle_button.png",
-    "assets/ui-cursor/run_button.png"  # Another idle state variant
-]
-ACTIVE_TEMPLATES = [
-    "assets/ui-cursor/generating_button.png"
-]
+# Directory-based template loading - just drop images into these folders!
+TEMPLATE_DIRECTORIES = {
+    "agent_idle": "assets/ui-cursor/agent_idle",
+    "agent_active": "assets/ui-cursor/agent_active", 
+    "run_command": "assets/ui-cursor/run_command"
+}
 
 # Detection parameters
 CONFIDENCE_THRESHOLD = 0.8          # Minimum confidence for valid detection
-MIN_CONFIDENCE_GAP = 0.1           # Minimum gap between idle/active confidence to avoid ambiguity
-REQUIRED_CONFIRMATIONS = 2         # Number of consistent detections before state change
+MIN_CONFIDENCE_GAP = 0.08          # Lowered from 0.12 to handle closer matches
+REQUIRED_CONFIRMATIONS = 1         # Reduced from 2 for faster response
 MIN_STATE_CHANGE_INTERVAL = 3      # Minimum seconds between state changes
 
 # Legacy support - you can switch back to simple detector by setting this to True
@@ -60,25 +61,150 @@ OCR_ENABLED = True
 COMMAND_QUEUE_ENABLED = True
 DIAGNOSTIC_MODE = True
 
+# Enhanced diagnostic output settings
+# ===================================
+# DIAGNOSTIC_VERBOSITY options:
+#   "low"    - Only show state changes and summary every 10 seconds
+#   "medium" - Show compact status updates every 5 seconds
+#   "high"   - Show all detection details in real-time
+DIAGNOSTIC_VERBOSITY = "high"     # Recommended: "low" for clean output
+
+# Output formatting options:
+CLEAR_CONSOLE_ON_UPDATE = False  # Clear console before each update (can be jarring)
+SHOW_CONFIDENCE_DETAILS = True   # Show detailed confidence scores
+USE_COMPACT_OUTPUT = True        # Use single-line status updates (recommended)
+
+# === Agent States ===
+class AgentState:
+    IDLE = "idle"
+    ACTIVE = "active"
+    RUN_COMMAND = "run_command"
+    UNKNOWN = "unknown"
+
+# State mapping - 1:1 mapping of directories to states
+STATE_TEMPLATE_MAPPING = {
+    AgentState.IDLE: ["agent_idle"],
+    AgentState.ACTIVE: ["agent_active"],
+    AgentState.RUN_COMMAND: ["run_command"]
+}
+
 # Sound configuration
 AUDIO_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "audio", "alerts")
 ALERT_SOUNDS = {
-    "idle": "alert_waiting.wav",
+    "idle": "alert_idle_simple.wav",  # New simple two-note sound
     "error": "alert_error.wav",
     "success": "alert_success.wav",
     "thinking": "alert_thinking.wav",
     "completed": "alert_completed.wav"
 }
 
-# === Agent States ===
-class AgentState:
-    IDLE = "idle"
-    ACTIVE = "active"
-    UNKNOWN = "unknown"
+# Idle alert repeat settings
+IDLE_ALERT_REPEAT_INTERVAL = 60  # Repeat idle alert every 60 seconds
 
 # === Enhanced Telemetry with DI ===
 from container import initialize_telemetry_system
 from telemetry import EventType, TelemetryService
+
+# === Enhanced Console Output Utilities ===
+class DiagnosticOutput:
+    """Utility class for better formatted diagnostic output."""
+    
+    def __init__(self):
+        self.last_output_time = 0
+        self.last_state = None
+        self.output_count = 0
+        
+    def clear_console(self):
+        """Clear the console screen."""
+        if CLEAR_CONSOLE_ON_UPDATE:
+            os.system('cls' if os.name == 'nt' else 'clear')
+            
+    def print_header(self):
+        """Print a formatted header."""
+        if DIAGNOSTIC_VERBOSITY in ["medium", "high"]:
+            print("=" * 60)
+            print(f"  Cursor Agent Monitor - {datetime.now().strftime('%H:%M:%S')}")
+            print("=" * 60)
+            
+    def should_output(self, force=False):
+        """Determine if we should output based on verbosity settings."""
+        if force:
+            return True
+            
+        current_time = time.time()
+        
+        if DIAGNOSTIC_VERBOSITY == "low":
+            # Only output on state changes or every 10 seconds
+            return current_time - self.last_output_time > 10
+        elif DIAGNOSTIC_VERBOSITY == "medium":
+            # Output every cycle but with reduced verbosity
+            return True
+        else:  # high
+            # Output everything
+            return True
+            
+    def format_status(self, state, confidence, stable_state=None):
+        """Format the current status in a clean way."""
+        # Ensure confidence is not None
+        if confidence is None:
+            conf_str = "None"
+        elif isinstance(confidence, (int, float)):
+            conf_str = f"{confidence:.2f}"
+        else:
+            conf_str = str(confidence)
+            
+        if USE_COMPACT_OUTPUT:
+            # Single line status update with timestamp
+            timestamp = datetime.now().strftime('%H:%M:%S')
+            status_line = f"[{timestamp}] {state:<10} (conf: {conf_str})"
+            if stable_state is not None and stable_state != state:
+                status_line += f" → {stable_state}"
+            return status_line
+        else:
+            status_line = f"State: {state:<10} | Confidence: {conf_str}"
+            if stable_state is not None:
+                status_line += f" | Stable: {stable_state}"
+            return status_line
+        
+    def format_confidences(self, state_confidences):
+        """Format confidence scores in a compact way."""
+        if not SHOW_CONFIDENCE_DETAILS or not state_confidences:
+            return ""
+            
+        conf_items = []
+        for state, conf in state_confidences.items():
+            # Ensure confidence is not None and is a valid number
+            if conf is None:
+                conf_str = "None"
+            elif isinstance(conf, (int, float)):
+                conf_str = f"{conf:.2f}"
+            else:
+                conf_str = str(conf)
+            conf_items.append(f"{state}: {conf_str}")
+            
+        if USE_COMPACT_OUTPUT:
+            return " | " + " | ".join(conf_items)
+        else:
+            return "Confidences: " + " | ".join(conf_items)
+            
+    def print_status_update(self, state, confidence, stable_state, state_confidences):
+        """Print a formatted status update."""
+        if USE_COMPACT_OUTPUT:
+            # Single line with all info
+            status_line = self.format_status(state, confidence, stable_state)
+            if SHOW_CONFIDENCE_DETAILS:
+                status_line += self.format_confidences(state_confidences)
+            print(status_line)
+        else:
+            # Multi-line format
+            print(self.format_status(state, confidence, stable_state))
+            if SHOW_CONFIDENCE_DETAILS:
+                conf_line = self.format_confidences(state_confidences)
+                if conf_line:
+                    print(conf_line)
+
+# Global diagnostic output instance
+diagnostic_output = DiagnosticOutput()
 
 class LegacyTelemetryAdapter:
     """Adapter to maintain compatibility with existing code while using new telemetry system."""
@@ -145,6 +271,42 @@ class LegacyTelemetryAdapter:
             state="unknown"
         )
 
+# === Template Loading Utilities ===
+def load_templates_from_directories(template_dirs: dict, state_mapping: dict):
+    """Load all template images from organized directories."""
+    supported_formats = ('.png', '.jpg', '.jpeg', '.bmp', '.tiff')
+    
+    # Dictionary to store templates by state
+    state_templates = {
+        AgentState.IDLE: [],
+        AgentState.ACTIVE: [],
+        AgentState.RUN_COMMAND: []
+    }
+    
+    # Load templates for each state
+    for state, dir_names in state_mapping.items():
+        for dir_name in dir_names:
+            dir_path = template_dirs.get(dir_name)
+            if not dir_path or not os.path.exists(dir_path):
+                print(f"[WARNING] Template directory not found: {dir_path}")
+                continue
+                
+            # Load all image files from directory
+            try:
+                files = os.listdir(dir_path)
+                image_files = [f for f in files if f.lower().endswith(supported_formats)]
+                
+                for image_file in image_files:
+                    full_path = os.path.join(dir_path, image_file)
+                    state_templates[state].append(full_path)
+                    
+                print(f"[INFO] Loaded {len(image_files)} templates from {dir_name}/ directory")
+                
+            except Exception as e:
+                print(f"[ERROR] Failed to load templates from {dir_path}: {e}")
+    
+    return state_templates
+
 # === Detection Engine Interface ===
 class StateDetector(Protocol):
     def detect_state(self) -> str:
@@ -152,50 +314,37 @@ class StateDetector(Protocol):
 
 # === Enhanced Multi-Template Detection Engine ===
 class EnhancedTemplateMatchDetector:
-    def __init__(self, idle_templates: list, active_templates: list, confidence_threshold=0.8, min_confidence_gap=0.1):
-        self.idle_templates = idle_templates
-        self.active_templates = active_templates
+    def __init__(self, state_templates: dict, confidence_threshold=0.8, min_confidence_gap=0.1):
+        self.state_templates = state_templates
         self.confidence_threshold = confidence_threshold
         self.min_confidence_gap = min_confidence_gap
         self.last_confidence = None
-        self.last_idle_confidence = None
-        self.last_active_confidence = None
+        self.state_confidences = {}  # Store confidence for each state
         self._last_match_rect = None
         self._detection_history = []  # For state stability
         self._last_state_change = 0
         self._min_state_change_interval = MIN_STATE_CHANGE_INTERVAL
         self._required_confirmations = REQUIRED_CONFIRMATIONS
         
-        # Load all template images
-        self.idle_imgs = []
-        self.active_imgs = []
+        # Load all template images by state
+        self.loaded_templates = {}
         
-        # Load idle templates
-        for template_path in idle_templates:
-            if not os.path.exists(template_path):
-                print(f"[WARNING] Idle template not found: {template_path}")
-                continue
-            img = cv2.imread(template_path)
-            if img is not None:
-                self.idle_imgs.append((template_path, img))
-                print(f"[INFO] Loaded idle template: {template_path} ({img.shape})")
-            else:
-                print(f"[ERROR] Failed to load idle template: {template_path}")
+        for state, template_paths in state_templates.items():
+            self.loaded_templates[state] = []
+            for template_path in template_paths:
+                if not os.path.exists(template_path):
+                    print(f"[WARNING] Template not found: {template_path}")
+                    continue
+                img = cv2.imread(template_path)
+                if img is not None:
+                    self.loaded_templates[state].append((template_path, img))
+                    print(f"[INFO] Loaded {state} template: {template_path} ({img.shape})")
+                else:
+                    print(f"[ERROR] Failed to load template: {template_path}")
         
-        # Load active templates
-        for template_path in active_templates:
-            if not os.path.exists(template_path):
-                print(f"[WARNING] Active template not found: {template_path}")
-                continue
-            img = cv2.imread(template_path)
-            if img is not None:
-                self.active_imgs.append((template_path, img))
-                print(f"[INFO] Loaded active template: {template_path} ({img.shape})")
-            else:
-                print(f"[ERROR] Failed to load active template: {template_path}")
-        
-        if not self.idle_imgs or not self.active_imgs:
-            raise RuntimeError("Failed to load template images for both states")
+        # Verify we have templates for the main states
+        if not self.loaded_templates.get(AgentState.IDLE) or not self.loaded_templates.get(AgentState.ACTIVE):
+            raise RuntimeError("Failed to load template images for required states (idle and active)")
 
     def _match_templates(self, img, template_list, state_name):
         """Match multiple templates and return the best match."""
@@ -219,8 +368,9 @@ class EnhancedTemplateMatchDetector:
                 best_rect = (max_loc[0], max_loc[1], w, h)
                 best_template_name = os.path.basename(template_path)
         
-        if DIAGNOSTIC_MODE and best_confidence > 0.5:  # Only show significant matches
-            print(f"[DIAGNOSTIC] Best {state_name} match: {best_confidence:.2f} ({best_template_name})")
+        if DIAGNOSTIC_MODE and DIAGNOSTIC_VERBOSITY == "high" and best_confidence > 0.5:
+            template_info = best_template_name if best_template_name else "no template"
+            print(f"[DIAGNOSTIC] Best {state_name} match: {best_confidence:.2f} ({template_info})")
         
         return best_confidence, best_rect, best_template_name
 
@@ -253,59 +403,100 @@ class EnhancedTemplateMatchDetector:
         try:
             # Take a screenshot
             screenshot = pyautogui.screenshot()
-
-            if DIAGNOSTIC_MODE:
-                print(f"[DIAGNOSTIC] Screenshot size: {screenshot.size}")
             
-            # Match all templates for both states
-            idle_confidence, idle_rect, idle_template = self._match_templates(screenshot, self.idle_imgs, "idle")
-            active_confidence, active_rect, active_template = self._match_templates(screenshot, self.active_imgs, "active")
+            # Match templates for all states
+            state_results = {}
+            for state, template_list in self.loaded_templates.items():
+                if template_list:  # Only check states that have templates
+                    try:
+                        confidence, rect, template_name = self._match_templates(screenshot, template_list, state)
+                        state_results[state] = {
+                            'confidence': confidence,
+                            'rect': rect,
+                            'template': template_name
+                        }
+                    except Exception as e:
+                        if DIAGNOSTIC_MODE:
+                            print(f"[WARNING] Template matching failed for {state}: {e}")
+                        # Set defaults for failed state
+                        state_results[state] = {
+                            'confidence': 0.0,
+                            'rect': None,
+                            'template': None
+                        }
             
-            # Store confidences for debugging
-            self.last_idle_confidence = idle_confidence
-            self.last_active_confidence = active_confidence
+            # Store all confidences for debugging - ensure no None values
+            self.state_confidences = {}
+            for state, result in state_results.items():
+                confidence = result.get('confidence', 0.0)
+                self.state_confidences[state] = confidence if confidence is not None else 0.0
             
-            # Determine the detected state based on confidence and thresholds
+            # Find the best matching state
+            valid_states = {}
+            for state, result in state_results.items():
+                if result['confidence'] >= self.confidence_threshold:
+                    valid_states[state] = result
+            
             detected_state = AgentState.UNKNOWN
             
-            # Both need to meet minimum threshold
-            idle_valid = idle_confidence >= self.confidence_threshold
-            active_valid = active_confidence >= self.confidence_threshold
-            
-            if active_valid and idle_valid:
-                # Both detected - use confidence gap to decide
-                confidence_gap = abs(active_confidence - idle_confidence)
+            if len(valid_states) == 0:
+                # No state meets threshold
+                detected_state = AgentState.UNKNOWN
+            elif len(valid_states) == 1:
+                # Only one state valid - use it
+                state = list(valid_states.keys())[0]
+                result = valid_states[state]
+                detected_state = state
+                self.last_confidence = result['confidence']
+                self._last_match_rect = result['rect']
+            else:
+                # Multiple states valid - check confidence gaps
+                sorted_states = sorted(valid_states.items(), key=lambda x: x[1]['confidence'], reverse=True)
+                best_state, best_result = sorted_states[0]
+                second_state, second_result = sorted_states[1]
+                
+                confidence_gap = best_result['confidence'] - second_result['confidence']
+                
                 if confidence_gap >= self.min_confidence_gap:
-                    if active_confidence > idle_confidence:
-                        detected_state = AgentState.ACTIVE
-                        self.last_confidence = active_confidence
-                        self._last_match_rect = active_rect
-                    else:
-                        detected_state = AgentState.IDLE
-                        self.last_confidence = idle_confidence
-                        self._last_match_rect = idle_rect
+                    # Clear winner
+                    detected_state = best_state
+                    self.last_confidence = best_result['confidence']
+                    self._last_match_rect = best_result['rect']
                 else:
-                    # Confidence too close - remain unknown to avoid flickering
+                    # Too close - stay unknown to avoid flickering
                     detected_state = AgentState.UNKNOWN
-                    if DIAGNOSTIC_MODE:
-                        print(f"[DIAGNOSTIC] Confidence gap too small ({confidence_gap:.2f}) - staying unknown")
-                        
-            elif active_valid:
-                detected_state = AgentState.ACTIVE
-                self.last_confidence = active_confidence
-                self._last_match_rect = active_rect
-            elif idle_valid:
-                detected_state = AgentState.IDLE
-                self.last_confidence = idle_confidence
-                self._last_match_rect = idle_rect
+                    if DIAGNOSTIC_MODE and DIAGNOSTIC_VERBOSITY == "high":
+                        print(f"[DIAGNOSTIC] Confidence gap too small ({confidence_gap:.2f}) between {best_state} and {second_state}")
             
             # Apply state stability check
             stable_state = self._get_stable_state(detected_state)
             
-            if DIAGNOSTIC_MODE:
-                print(f"[DIAGNOSTIC] Detected: {detected_state}, Stable: {stable_state}")
-                if detected_state != AgentState.UNKNOWN:
-                    print(f"[DIAGNOSTIC] Active conf: {active_confidence:.2f}, Idle conf: {idle_confidence:.2f}")
+            # Enhanced diagnostic output with better formatting
+            if DIAGNOSTIC_MODE and diagnostic_output.should_output():
+                confidence = self.last_confidence if hasattr(self, 'last_confidence') else 0.0
+                
+                # Only show output on state changes or based on verbosity
+                show_output = False
+                if stable_state != diagnostic_output.last_state:
+                    show_output = True
+                elif DIAGNOSTIC_VERBOSITY == "high":
+                    show_output = True
+                elif DIAGNOSTIC_VERBOSITY == "medium" and time.time() - diagnostic_output.last_output_time > 5:
+                    show_output = True
+                    
+                if show_output:
+                    # Clear console for clean display only on state changes
+                    if stable_state != diagnostic_output.last_state and CLEAR_CONSOLE_ON_UPDATE:
+                        diagnostic_output.clear_console()
+                        diagnostic_output.print_header()
+                    
+                    # Print formatted status update
+                    diagnostic_output.print_status_update(
+                        detected_state, confidence, stable_state, self.state_confidences
+                    )
+                    
+                    diagnostic_output.last_state = stable_state
+                    diagnostic_output.last_output_time = time.time()
             
             # Only return stable state if we have enough confirmations
             if stable_state is not None:
@@ -326,8 +517,10 @@ class OCRDetector:
         try:
             screenshot = ImageGrab.grab()
             text = pytesseract.image_to_string(screenshot)
+            # FIXME: These are not valid for idle states, to remove
             if "Start a new chat" in text or "Accept" in text:
                 return AgentState.IDLE
+            # FIXME: "Generating" is a valid active state
             return AgentState.ACTIVE
         except Exception as e:
             print(f"[ERROR] OCR detection failed: {e}")
@@ -376,7 +569,7 @@ class SoundPlayer:
         except Exception as e:
             print(f"[ERROR] Failed to play sound: {e}")
 
-# === Agent Monitor ===
+# === Cursor Agent Monitor ===
 class AgentMonitor:
     def __init__(self, detectors: list, telemetry: LegacyTelemetryAdapter, executor: Optional[CommandExecutor] = None):
         self.detectors = detectors
@@ -391,6 +584,57 @@ class AgentMonitor:
         self.current_state = AgentState.UNKNOWN
         self.last_screenshot = None
         self.last_detection_rect = None
+        # Enhanced state tracking to prevent unnecessary notifications
+        self.last_stable_state = AgentState.UNKNOWN
+        self.last_notification_time = 0
+        self.min_notification_interval = 5  # Minimum seconds between same-type notifications
+        # Idle alert repeat functionality
+        self.idle_start_time = None  # When idle state started
+        self.last_idle_alert_time = 0  # Last time we played idle alert
+
+    def _should_notify_state_change(self, new_state):
+        """Determine if we should notify about a state change to prevent spam."""
+        current_time = time.time()
+        
+        # Always notify if it's a different type of state change
+        if new_state != self.last_stable_state:
+            return True
+            
+        # Don't notify if same state and too soon since last notification
+        if current_time - self.last_notification_time < self.min_notification_interval:
+            return False
+            
+        return True
+
+    def _check_idle_repeat_alert(self):
+        """Check if we should play a repeating idle alert."""
+        current_time = time.time()
+        
+        # Only check if we're in idle state and not muted
+        if self.state != AgentState.IDLE or self.muted or self.paused:
+            return
+            
+        # If we just entered idle state, set the start time
+        if self.idle_start_time is None:
+            self.idle_start_time = current_time
+            self.last_idle_alert_time = current_time  # Count initial alert
+            return
+            
+        # Check if enough time has passed since last alert
+        time_since_last_alert = current_time - self.last_idle_alert_time
+        if time_since_last_alert >= IDLE_ALERT_REPEAT_INTERVAL:
+            # Play the idle alert again
+            self.sound_player.play_sound("idle")
+            self.last_idle_alert_time = current_time
+            
+            # Optional: Also show notification for repeat alerts
+            idle_duration = int(current_time - self.idle_start_time)
+            Notifier.notify(f"Still idle after {idle_duration // 60}:{idle_duration % 60:02d}", title="Agent Watcher")
+
+    def _reset_idle_tracking(self):
+        """Reset idle state tracking when leaving idle."""
+        self.idle_start_time = None
+        self.last_idle_alert_time = 0
 
     def scan_and_act(self):
         if not self.running or self.paused:
@@ -409,14 +653,26 @@ class AgentMonitor:
             if hasattr(detector, 'last_confidence'):
                 self.last_confidence = detector.last_confidence
             
-            # Store detection rectangle if available
+            # Store detection rectangle if available (fix variable name mismatch)
             if hasattr(detector, '_last_match_rect'):
                 self.last_detection_rect = detector._last_match_rect
+            elif hasattr(detector, 'last_match_rect'):
+                self.last_detection_rect = detector.last_match_rect
             
-            if state == AgentState.IDLE:
-                if self.state != AgentState.IDLE:
-                    self.state = AgentState.IDLE
-                    self.current_state = AgentState.IDLE
+            # Always update current_state to reflect what we're detecting
+            self.current_state = state
+            
+            if state in [AgentState.IDLE, AgentState.RUN_COMMAND]:
+                # Handle both idle and run_command states (both indicate waiting for user action)
+                target_state = state  # Keep the specific state
+                
+                # Only update main state and notify if this is a meaningful state change
+                if self.state != target_state:
+                    # Reset idle tracking if coming from a different state
+                    if self.state != AgentState.IDLE:
+                        self._reset_idle_tracking()
+                    
+                    self.state = target_state
                     
                     # Record detection with enhanced telemetry
                     self.telemetry.record_detection(
@@ -425,21 +681,40 @@ class AgentMonitor:
                         match_rect=self.last_detection_rect
                     )
                     
-                    Notifier.notify("Agent idle – input may be needed", title="Agent Watcher")
-                    if not self.muted:
-                        self.sound_player.play_sound("idle")
-                    if AUTO_CLICK_ENABLED:
-                        pyautogui.press("enter")
-                    if self.executor:
-                        cmd = self.executor.process_next()
-                        if cmd:
-                            self.telemetry.log_event(f"Executed command: {cmd}")
+                    # Only notify if it's appropriate (not spam)
+                    if self._should_notify_state_change(target_state):
+                        self.last_stable_state = target_state
+                        self.last_notification_time = time.time()
+                        
+                        if target_state == AgentState.IDLE:
+                            Notifier.notify("Agent idle – input may be needed", title="Agent Watcher")
+                        elif target_state == AgentState.RUN_COMMAND:
+                            Notifier.notify("Run command ready – click to execute", title="Agent Watcher")
+                            
+                        if not self.muted:
+                            self.sound_player.play_sound("idle")
+                        
+                        if AUTO_CLICK_ENABLED:
+                            pyautogui.press("enter")
+                        if self.executor:
+                            cmd = self.executor.process_next()
+                            if cmd:
+                                self.telemetry.log_event(f"Executed command: {cmd}")
+                
+                # Check for repeating idle alerts
+                self._check_idle_repeat_alert()
+                    
                 detection_successful = True
                 return
+                
             elif state == AgentState.ACTIVE:
+                # Reset idle tracking when becoming active
+                if self.state == AgentState.IDLE:
+                    self._reset_idle_tracking()
+                
+                # Only update main state and notify if this is a meaningful state change
                 if self.state != AgentState.ACTIVE:
                     self.state = AgentState.ACTIVE
-                    self.current_state = AgentState.ACTIVE
                     
                     # Record active detection with enhanced telemetry
                     self.telemetry.record_active_detection(
@@ -447,12 +722,21 @@ class AgentMonitor:
                         detection_method=detector.__class__.__name__,
                         match_rect=self.last_detection_rect
                     )
-                else:
-                    self.current_state = AgentState.ACTIVE
+                    
+                    # Only notify if it's appropriate (not spam)
+                    if self._should_notify_state_change(AgentState.ACTIVE):
+                        self.last_stable_state = AgentState.ACTIVE
+                        self.last_notification_time = time.time()
+                        
+                        # Optional: Add sound for active state (currently no sound for active)
+                        # if not self.muted:
+                        #     self.sound_player.play_sound("thinking")
+                    
                 detection_successful = True
+                
             elif state == AgentState.UNKNOWN:
-                self.current_state = AgentState.UNKNOWN
-                # Unknown state could indicate detection issues, but not necessarily a failure
+                # Don't change main state for unknown - but still update current detection for UI
+                pass
 
         # Only record failure if we couldn't detect any state at all
         if not detection_successful and self.current_state == AgentState.UNKNOWN:
@@ -487,9 +771,9 @@ class ControlPanel(NSObject):
         self.show_debug = False
         self.alpha = 0.95
         
-        # Create the window - much more compact
+        # Create the window - sized for 2x2 grid layout
         self.window = AppKit.NSWindow.alloc().initWithContentRect_styleMask_backing_defer_(
-            NSMakeRect(0, 0, 240, 180),  # Compact size for overlay use
+            NSMakeRect(0, 0, 240, 260),  # Proper size for 2x2 button grid
             AppKit.NSWindowStyleMaskTitled | 
             AppKit.NSWindowStyleMaskClosable | 
             AppKit.NSWindowStyleMaskResizable |
@@ -499,10 +783,14 @@ class ControlPanel(NSObject):
         )
         
         # Configure window properties
-        self.window.setTitle_("Agent Monitor Compact")
+        self.window.setTitle_("Cursor Agent Monitor")
         self.window.setTitlebarAppearsTransparent_(True)
         self.window.setLevel_(AppKit.NSFloatingWindowLevel)
         self.window.setMovableByWindowBackground_(True)
+        
+        # Set minimum and maximum size to prevent content overflow
+        self.window.setMinSize_(NSMakePoint(220, 240))
+        self.window.setMaxSize_(NSMakePoint(300, 320))
         
         # Create main view
         self.content_view = AppKit.NSView.alloc().init()
@@ -531,37 +819,52 @@ class ControlPanel(NSObject):
         return self
 
     def _setup_ui_with_autolayout(self):
-        """Create and layout UI components using Auto Layout - Compact Design."""
+        """Create and layout UI components using Auto Layout - Responsive 2x2 Grid Design."""
         self.stats_window = None
         self.show_stats = False
         
         # --- Helpers to create styled UI elements without frames ---
-        def create_label(panel_self, text, size=12, is_bold=False, align='left'):
-            label = panel_self.createStyledLabelWithFrame_text_(NSMakeRect(0,0,0,0), text) # Frame is dummy
+        def create_label(panel_self, text, size=12, is_bold=False, align='center'):
+            label = AppKit.NSTextField.alloc().init()
+            label.setStringValue_(text)
+            label.setBezeled_(False)
+            label.setDrawsBackground_(False)
+            label.setEditable_(False)
+            label.setSelectable_(False)
             font = AppKit.NSFont.boldSystemFontOfSize_(size) if is_bold else AppKit.NSFont.systemFontOfSize_(size)
             label.setFont_(font)
-            if align == 'right': label.setAlignment_(AppKit.NSTextAlignmentRight)
-            elif align == 'center': label.setAlignment_(AppKit.NSTextAlignmentCenter)
-            else: label.setAlignment_(AppKit.NSTextAlignmentLeft)
+            label.setTextColor_(AppKit.NSColor.controlTextColor())
+            if align == 'right': 
+                label.setAlignment_(AppKit.NSTextAlignmentRight)
+            elif align == 'center': 
+                label.setAlignment_(AppKit.NSTextAlignmentCenter)
+            else: 
+                label.setAlignment_(AppKit.NSTextAlignmentLeft)
             label.setTranslatesAutoresizingMaskIntoConstraints_(False)
             panel_self.content_view.addSubview_(label)
             return label
 
-        def create_compact_button(panel_self, title, size=11):
-            button = panel_self.createStyledButtonWithFrame_title_(NSMakeRect(0,0,0,0), title) # Frame is dummy
+        def create_button(panel_self, title, size=12):
+            button = AppKit.NSButton.alloc().init()
+            button.setTitle_(title)
+            button.setBezelStyle_(AppKit.NSBezelStyleRounded)
             button.setFont_(AppKit.NSFont.systemFontOfSize_(size))
             button.setTranslatesAutoresizingMaskIntoConstraints_(False)
             panel_self.content_view.addSubview_(button)
             return button
 
-        # --- Create Compact UI Elements ---
-        # Header with title and settings
-        title = create_label(self, "Agent Monitor", 14, is_bold=True, align='center')
+        # --- Create UI Elements with Proper Responsive Layout ---
         
-        settings_btn = create_compact_button(self, "⚙️")
-        settings_btn.setTarget_(self)
-        settings_btn.setAction_(objc.selector(self.toggleAlphaSlider_, signature=b"v@:"))
+        # Title (properly centered, no duplication)
+        self.title_label = create_label(self, "", 16, is_bold=True, align='center')
+        # self.title_label = create_label(self, "Cursor Agent Monitor", 16, is_bold=True, align='center')
         
+        # Settings button (top right)
+        self.settings_btn = create_button(self, "⚙️", 14)
+        self.settings_btn.setTarget_(self)
+        self.settings_btn.setAction_(objc.selector(self.toggleAlphaSlider_, signature=b"v@:"))
+        
+        # Alpha slider (hidden by default)
         self.alpha_slider = AppKit.NSSlider.alloc().init()
         self.alpha_slider.setMinValue_(0.2)
         self.alpha_slider.setMaxValue_(1.0)
@@ -572,78 +875,86 @@ class ControlPanel(NSObject):
         self.alpha_slider.setHidden_(True)
         self.content_view.addSubview_(self.alpha_slider)
 
-        # Status display (improved formatting)
-        self.status_state_label = create_label(self, "Unknown", 15, is_bold=True, align='center')
+        # Status display (properly centered)
+        self.status_state_label = create_label(self, "❓ Unknown • Running", 14, is_bold=True, align='center')
         self.confidence_label = create_label(self, "Confidence: -", 11, align='center')
 
-        # Compact button row
-        self.toggle_btn = create_compact_button(self, "⏸️")  # Pause/Resume
+        # 2x2 Button Grid Layout
+        self.toggle_btn = create_button(self, "⏸️", 16)  # Top-left
         self.toggle_btn.setTarget_(self)
         self.toggle_btn.setAction_(objc.selector(self.toggleMonitor_, signature=b"v@:"))
         
-        self.mute_btn = create_compact_button(self, "🔊")  # Mute/Unmute
+        self.mute_btn = create_button(self, "🔊", 16)  # Top-right
         self.mute_btn.setTarget_(self)
         self.mute_btn.setAction_(objc.selector(self.toggleMute_, signature=b"v@:"))
         
-        self.stats_btn = create_compact_button(self, "📊")  # Stats popup
+        self.stats_btn = create_button(self, "📊", 16)  # Bottom-left
         self.stats_btn.setTarget_(self)
         self.stats_btn.setAction_(objc.selector(self.toggleStatsWindow_, signature=b"v@:"))
         
-        self.debug_btn = create_compact_button(self, "🐛")  # Debug view
+        self.debug_btn = create_button(self, "🐛", 16)  # Bottom-right
         self.debug_btn.setTarget_(self)
         self.debug_btn.setAction_(objc.selector(self.toggleDebugView_, signature=b"v@:"))
 
-        # --- Activate Constraints - Compact Layout ---
-        padding = 10
-        small_padding = 5
+        # --- Responsive Constraints for Proper Centering and 2x2 Grid ---
+        padding = 16
+        button_spacing = 8
+        
         NSLayoutConstraint.activateConstraints_([
-            # Header row
-            title.topAnchor().constraintEqualToAnchor_constant_(self.content_view.topAnchor(), padding),
-            title.leadingAnchor().constraintEqualToAnchor_constant_(self.content_view.leadingAnchor(), padding),
-            title.trailingAnchor().constraintEqualToAnchor_constant_(settings_btn.leadingAnchor(), -small_padding),
+            # Title - properly centered across full width
+            self.title_label.topAnchor().constraintEqualToAnchor_constant_(self.content_view.topAnchor(), padding),
+            self.title_label.centerXAnchor().constraintEqualToAnchor_(self.content_view.centerXAnchor()),
+            self.title_label.leadingAnchor().constraintGreaterThanOrEqualToAnchor_constant_(self.content_view.leadingAnchor(), padding),
+            self.title_label.trailingAnchor().constraintLessThanOrEqualToAnchor_constant_(self.settings_btn.leadingAnchor(), -8),
 
-            settings_btn.topAnchor().constraintEqualToAnchor_constant_(self.content_view.topAnchor(), padding),
-            settings_btn.trailingAnchor().constraintEqualToAnchor_constant_(self.content_view.trailingAnchor(), -padding),
-            settings_btn.widthAnchor().constraintEqualToConstant_(24),
-            settings_btn.heightAnchor().constraintEqualToConstant_(24),
+            # Settings button - top right corner
+            self.settings_btn.topAnchor().constraintEqualToAnchor_constant_(self.content_view.topAnchor(), padding),
+            self.settings_btn.trailingAnchor().constraintEqualToAnchor_constant_(self.content_view.trailingAnchor(), -padding),
+            self.settings_btn.widthAnchor().constraintEqualToConstant_(32),
+            self.settings_btn.heightAnchor().constraintEqualToConstant_(32),
 
-            # Alpha slider (hidden by default)
-            self.alpha_slider.topAnchor().constraintEqualToAnchor_constant_(title.bottomAnchor(), small_padding),
+            # Alpha slider - full width, hidden by default
+            self.alpha_slider.topAnchor().constraintEqualToAnchor_constant_(self.title_label.bottomAnchor(), 8),
             self.alpha_slider.leadingAnchor().constraintEqualToAnchor_constant_(self.content_view.leadingAnchor(), padding),
             self.alpha_slider.trailingAnchor().constraintEqualToAnchor_constant_(self.content_view.trailingAnchor(), -padding),
+            self.alpha_slider.heightAnchor().constraintEqualToConstant_(20),
 
-            # Status display (improved spacing)
-            self.status_state_label.topAnchor().constraintEqualToAnchor_constant_(self.alpha_slider.bottomAnchor(), padding + 5),
-            self.status_state_label.leadingAnchor().constraintEqualToAnchor_constant_(self.content_view.leadingAnchor(), padding),
-            self.status_state_label.trailingAnchor().constraintEqualToAnchor_constant_(self.content_view.trailingAnchor(), -padding),
+            # Status display - centered
+            self.status_state_label.topAnchor().constraintEqualToAnchor_constant_(self.alpha_slider.bottomAnchor(), padding),
+            self.status_state_label.centerXAnchor().constraintEqualToAnchor_(self.content_view.centerXAnchor()),
+            self.status_state_label.leadingAnchor().constraintGreaterThanOrEqualToAnchor_constant_(self.content_view.leadingAnchor(), padding),
+            self.status_state_label.trailingAnchor().constraintLessThanOrEqualToAnchor_constant_(self.content_view.trailingAnchor(), -padding),
 
             self.confidence_label.topAnchor().constraintEqualToAnchor_constant_(self.status_state_label.bottomAnchor(), 4),
-            self.confidence_label.leadingAnchor().constraintEqualToAnchor_constant_(self.content_view.leadingAnchor(), padding),
-            self.confidence_label.trailingAnchor().constraintEqualToAnchor_constant_(self.content_view.trailingAnchor(), -padding),
+            self.confidence_label.centerXAnchor().constraintEqualToAnchor_(self.content_view.centerXAnchor()),
+            self.confidence_label.leadingAnchor().constraintGreaterThanOrEqualToAnchor_constant_(self.content_view.leadingAnchor(), padding),
+            self.confidence_label.trailingAnchor().constraintLessThanOrEqualToAnchor_constant_(self.content_view.trailingAnchor(), -padding),
 
-            # Button row (improved spacing and sizing)
-            self.toggle_btn.topAnchor().constraintEqualToAnchor_constant_(self.confidence_label.bottomAnchor(), padding + 2),
+            # 2x2 Button Grid - properly centered and responsive
+            # Top row buttons
+            self.toggle_btn.topAnchor().constraintEqualToAnchor_constant_(self.confidence_label.bottomAnchor(), padding),
             self.toggle_btn.leadingAnchor().constraintEqualToAnchor_constant_(self.content_view.leadingAnchor(), padding),
-            self.toggle_btn.widthAnchor().constraintEqualToConstant_(50),
-            self.toggle_btn.heightAnchor().constraintEqualToConstant_(32),
+            self.toggle_btn.trailingAnchor().constraintEqualToAnchor_constant_(self.content_view.centerXAnchor(), -button_spacing/2),
+            self.toggle_btn.heightAnchor().constraintEqualToConstant_(40),
 
             self.mute_btn.topAnchor().constraintEqualToAnchor_(self.toggle_btn.topAnchor()),
-            self.mute_btn.leadingAnchor().constraintEqualToAnchor_constant_(self.toggle_btn.trailingAnchor(), small_padding + 2),
-            self.mute_btn.widthAnchor().constraintEqualToConstant_(50),
-            self.mute_btn.heightAnchor().constraintEqualToConstant_(32),
+            self.mute_btn.leadingAnchor().constraintEqualToAnchor_constant_(self.content_view.centerXAnchor(), button_spacing/2),
+            self.mute_btn.trailingAnchor().constraintEqualToAnchor_constant_(self.content_view.trailingAnchor(), -padding),
+            self.mute_btn.heightAnchor().constraintEqualToConstant_(40),
 
-            self.stats_btn.topAnchor().constraintEqualToAnchor_(self.toggle_btn.topAnchor()),
-            self.stats_btn.leadingAnchor().constraintEqualToAnchor_constant_(self.mute_btn.trailingAnchor(), small_padding + 2),
-            self.stats_btn.widthAnchor().constraintEqualToConstant_(50),
-            self.stats_btn.heightAnchor().constraintEqualToConstant_(32),
+            # Bottom row buttons
+            self.stats_btn.topAnchor().constraintEqualToAnchor_constant_(self.toggle_btn.bottomAnchor(), button_spacing),
+            self.stats_btn.leadingAnchor().constraintEqualToAnchor_constant_(self.content_view.leadingAnchor(), padding),
+            self.stats_btn.trailingAnchor().constraintEqualToAnchor_constant_(self.content_view.centerXAnchor(), -button_spacing/2),
+            self.stats_btn.heightAnchor().constraintEqualToConstant_(40),
 
-            self.debug_btn.topAnchor().constraintEqualToAnchor_(self.toggle_btn.topAnchor()),
-            self.debug_btn.leadingAnchor().constraintEqualToAnchor_constant_(self.stats_btn.trailingAnchor(), small_padding + 2),
+            self.debug_btn.topAnchor().constraintEqualToAnchor_(self.stats_btn.topAnchor()),
+            self.debug_btn.leadingAnchor().constraintEqualToAnchor_constant_(self.content_view.centerXAnchor(), button_spacing/2),
             self.debug_btn.trailingAnchor().constraintEqualToAnchor_constant_(self.content_view.trailingAnchor(), -padding),
-            self.debug_btn.heightAnchor().constraintEqualToConstant_(32),
+            self.debug_btn.heightAnchor().constraintEqualToConstant_(40),
 
-            # Bottom constraint
-            self.toggle_btn.bottomAnchor().constraintLessThanOrEqualToAnchor_constant_(self.content_view.bottomAnchor(), -padding),
+            # Bottom constraint - ensure proper window height
+            self.stats_btn.bottomAnchor().constraintLessThanOrEqualToAnchor_constant_(self.content_view.bottomAnchor(), -padding),
         ])
 
 
@@ -668,9 +979,11 @@ class ControlPanel(NSObject):
         confidence = f"{self.monitor.last_confidence:.2f}" if self.monitor.last_confidence is not None else "-"
         self.confidence_label.setStringValue_(f"Confidence: {confidence}")
         
-        # Update button states
+        # Update button states - 2x2 grid with larger emoji buttons
         self.toggle_btn.setTitle_("▶️" if self.monitor.paused else "⏸️")
         self.mute_btn.setTitle_("🔇" if self.monitor.muted else "🔊")
+        self.stats_btn.setTitle_("📊")
+        self.debug_btn.setTitle_("🐛")
         
         # Update stats window if open
         if self.show_stats and hasattr(self, 'stats_detections_label'):
@@ -683,11 +996,11 @@ class ControlPanel(NSObject):
 
     def toggleMonitor_(self, sender):
         self.monitor.toggle_running()
-        self.toggle_btn.setTitle_("Pause Monitor" if not self.monitor.paused else "Resume Monitor")
+        # Button title is updated in updateDisplay_ method
 
     def toggleMute_(self, sender):
         self.monitor.toggle_muted()
-        self.mute_btn.setTitle_("Mute Sounds" if not self.monitor.muted else "Unmute Sounds")
+        # Button title is updated in updateDisplay_ method
         
     def toggleStatsWindow_(self, sender):
         """Toggle the statistics popup window."""
@@ -721,7 +1034,7 @@ class ControlPanel(NSObject):
             False
         )
         
-        self.stats_window.setTitle_("Agent Monitor Statistics")
+        self.stats_window.setTitle_("Cursor Agent Monitor Statistics")
         self.stats_window.setLevel_(AppKit.NSFloatingWindowLevel)
         
         # Position relative to main window
@@ -814,10 +1127,40 @@ class ControlPanel(NSObject):
                 img_array = np.array(self.monitor.last_screenshot)
                 height, width, _ = img_array.shape
                 
-                if hasattr(self.monitor, 'last_detection_rect'):
+                # Check for detection rectangle - try multiple possible attribute names
+                rect = None
+                if hasattr(self.monitor, 'last_detection_rect') and self.monitor.last_detection_rect is not None:
                     rect = self.monitor.last_detection_rect
-                    if rect is not None:
-                        cv2.rectangle(img_array, (rect[0], rect[1]), (rect[0] + rect[2], rect[1] + rect[3]), (0, 255, 0), 2)
+                elif hasattr(self.monitor, '_last_match_rect') and self.monitor._last_match_rect is not None:
+                    rect = self.monitor._last_match_rect
+                elif len(self.monitor.detectors) > 0:
+                    # Try to get from the first detector
+                    detector = self.monitor.detectors[0]
+                    if hasattr(detector, '_last_match_rect') and detector._last_match_rect is not None:
+                        rect = detector._last_match_rect
+                        # Update monitor's rect for consistency
+                        self.monitor.last_detection_rect = rect
+                    elif hasattr(detector, 'last_match_rect') and detector.last_match_rect is not None:
+                        rect = detector.last_match_rect
+                        self.monitor.last_detection_rect = rect
+                
+                # Draw rectangle if we found one
+                if rect is not None:
+                    # Ensure rect has 4 values (x, y, width, height)
+                    if len(rect) >= 4:
+                        x, y, w, h = rect[:4]
+                        # Draw green rectangle around detected area
+                        cv2.rectangle(img_array, (int(x), int(y)), (int(x + w), int(y + h)), (0, 255, 0), 3)
+                        
+                        # Add text label showing detection info
+                        label = f"Detected: {self.monitor.current_state}"
+                        if self.monitor.last_confidence is not None:
+                            label += f" ({self.monitor.last_confidence:.3f})"
+                        
+                        # Put text above the rectangle
+                        text_y = max(int(y) - 10, 20)
+                        cv2.putText(img_array, label, (int(x), text_y), 
+                                   cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
                 
                 # Convert to RGB and save as temporary PNG file
                 img_array_rgb = cv2.cvtColor(img_array, cv2.COLOR_BGR2RGB)
@@ -838,6 +1181,8 @@ class ControlPanel(NSObject):
                     self.debug_image_view.setImage_(ns_image)
             except Exception as e:
                 print(f"[ERROR] Debug view update failed: {e}")
+                import traceback
+                traceback.print_exc()
             
     def _formatTime_(self, timestamp):
         if timestamp is None:
@@ -849,7 +1194,7 @@ class ControlPanel(NSObject):
         app_menu_item = AppKit.NSMenuItem.alloc().init()
         menubar.addItem_(app_menu_item)
         app_menu = AppKit.NSMenu.alloc().init()
-        quit_title = "Quit Agent Monitor"
+        quit_title = "Quit Cursor Agent Monitor"
         quit_item = AppKit.NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(quit_title, "terminate:", "q")
         app_menu.addItem_(quit_item)
         app_menu_item.setSubmenu_(app_menu)
@@ -924,15 +1269,24 @@ def main():
     telemetry = LegacyTelemetryAdapter(telemetry_service)
     executor = CommandExecutor() if COMMAND_QUEUE_ENABLED else None
 
+    # Load templates from organized directories
+    state_templates = load_templates_from_directories(TEMPLATE_DIRECTORIES, STATE_TEMPLATE_MAPPING)
+    
+    if not state_templates.get(AgentState.IDLE) or not state_templates.get(AgentState.ACTIVE):
+        print("[ERROR] No templates found for required states! Please add template images to agent_idle/ and agent_active/ directories.")
+        return
+    
     # Create detectors
     if USE_LEGACY_DETECTOR:
-        # Fallback to legacy single-template detector
-        detectors = [TemplateMatchDetector(IDLE_TEMPLATES[0], ACTIVE_TEMPLATES[0])]
+        # Fallback to legacy single-template detector (use first template from each category)
+        detectors = [TemplateMatchDetector(
+            state_templates[AgentState.IDLE][0], 
+            state_templates[AgentState.ACTIVE][0]
+        )]
     else:
-        # Use enhanced multi-template detector with custom parameters
+        # Use enhanced multi-template detector with all loaded templates
         detectors = [EnhancedTemplateMatchDetector(
-            IDLE_TEMPLATES, 
-            ACTIVE_TEMPLATES,
+            state_templates,
             confidence_threshold=CONFIDENCE_THRESHOLD,
             min_confidence_gap=MIN_CONFIDENCE_GAP
         )]

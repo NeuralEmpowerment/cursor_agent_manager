@@ -17,9 +17,7 @@ if [ ! -f "agent_monitor_poc.py" ]; then
     exit 1
 fi
 
-if [ ! -f "idle_button.png" ] || [ ! -f "generating_button.png" ]; then
-    echo "Warning: Template images not found. Make sure to have idle_button.png and generating_button.png in the current directory."
-fi
+
 
 # Run the application
 echo "Starting Agent Monitor..."
