@@ -35,9 +35,24 @@ import AppKit
 import objc
 from Foundation import NSObject, NSMakeRect, NSMakePoint, NSLayoutConstraint
 
-# === Config ===
-IDLE_IMAGE = "assets/ui/buttons/idle_button.png"
-ACTIVE_IMAGE = "assets/ui/buttons/generating_button.png"
+# === Enhanced Detection Config ===
+IDLE_TEMPLATES = [
+    "assets/ui-cursor/idle_button.png",
+    "assets/ui-cursor/run_button.png"  # Another idle state variant
+]
+ACTIVE_TEMPLATES = [
+    "assets/ui-cursor/generating_button.png"
+]
+
+# Detection parameters
+CONFIDENCE_THRESHOLD = 0.8          # Minimum confidence for valid detection
+MIN_CONFIDENCE_GAP = 0.1           # Minimum gap between idle/active confidence to avoid ambiguity
+REQUIRED_CONFIRMATIONS = 2         # Number of consistent detections before state change
+MIN_STATE_CHANGE_INTERVAL = 3      # Minimum seconds between state changes
+
+# Legacy support - you can switch back to simple detector by setting this to True
+USE_LEGACY_DETECTOR = False
+
 CHECK_INTERVAL_SEC = 2
 TELEMETRY_FILE = "telemetry.json"
 AUTO_CLICK_ENABLED = False
@@ -135,56 +150,103 @@ class StateDetector(Protocol):
     def detect_state(self) -> str:
         ...
 
-# === Double Template Matcher ===
-class TemplateMatchDetector:
-    def __init__(self, idle_template: str, generating_template: str):
-        self.idle_template = idle_template
-        self.generating_template = generating_template
+# === Enhanced Multi-Template Detection Engine ===
+class EnhancedTemplateMatchDetector:
+    def __init__(self, idle_templates: list, active_templates: list, confidence_threshold=0.8, min_confidence_gap=0.1):
+        self.idle_templates = idle_templates
+        self.active_templates = active_templates
+        self.confidence_threshold = confidence_threshold
+        self.min_confidence_gap = min_confidence_gap
         self.last_confidence = None
+        self.last_idle_confidence = None
+        self.last_active_confidence = None
         self._last_match_rect = None
+        self._detection_history = []  # For state stability
+        self._last_state_change = 0
+        self._min_state_change_interval = MIN_STATE_CHANGE_INTERVAL
+        self._required_confirmations = REQUIRED_CONFIRMATIONS
         
-        # Verify template files exist
-        if not os.path.exists(idle_template):
-            raise FileNotFoundError(f"Idle template not found: {idle_template}")
-        if not os.path.exists(generating_template):
-            raise FileNotFoundError(f"Generating template not found: {generating_template}")
-            
-        # Load template images
-        try:
-            self.idle_img = cv2.imread(idle_template)
-            self.generating_img = cv2.imread(generating_template)
-            
-            if self.idle_img is None or self.generating_img is None:
-                raise RuntimeError("Failed to load one or more template images")
-                
-            print(f"[INFO] Successfully loaded template images:")
-            print(f"  - Idle template: {idle_template} ({self.idle_img.shape})")
-            print(f"  - Generating template: {generating_template} ({self.generating_img.shape})")
-        except Exception as e:
-            raise RuntimeError(f"Failed to load template images: {e}")
+        # Load all template images
+        self.idle_imgs = []
+        self.active_imgs = []
+        
+        # Load idle templates
+        for template_path in idle_templates:
+            if not os.path.exists(template_path):
+                print(f"[WARNING] Idle template not found: {template_path}")
+                continue
+            img = cv2.imread(template_path)
+            if img is not None:
+                self.idle_imgs.append((template_path, img))
+                print(f"[INFO] Loaded idle template: {template_path} ({img.shape})")
+            else:
+                print(f"[ERROR] Failed to load idle template: {template_path}")
+        
+        # Load active templates
+        for template_path in active_templates:
+            if not os.path.exists(template_path):
+                print(f"[WARNING] Active template not found: {template_path}")
+                continue
+            img = cv2.imread(template_path)
+            if img is not None:
+                self.active_imgs.append((template_path, img))
+                print(f"[INFO] Loaded active template: {template_path} ({img.shape})")
+            else:
+                print(f"[ERROR] Failed to load active template: {template_path}")
+        
+        if not self.idle_imgs or not self.active_imgs:
+            raise RuntimeError("Failed to load template images for both states")
 
-    def _match_template(self, img, template, threshold=0.8):
-        """Match template in image using OpenCV."""
-        # Convert PIL image to OpenCV format
+    def _match_templates(self, img, template_list, state_name):
+        """Match multiple templates and return the best match."""
+        best_confidence = 0
+        best_rect = None
+        best_template_name = None
+        
+        # Convert PIL image to OpenCV format once
         img_cv = cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR)
         
-        # Get dimensions
-        h, w = template.shape[:2]
+        for template_path, template in template_list:
+            # Get dimensions
+            h, w = template.shape[:2]
+            
+            # Template matching
+            result = cv2.matchTemplate(img_cv, template, cv2.TM_CCOEFF_NORMED)
+            min_val, max_val, min_loc, max_loc = cv2.minMaxLoc(result)
+            
+            if max_val > best_confidence:
+                best_confidence = max_val
+                best_rect = (max_loc[0], max_loc[1], w, h)
+                best_template_name = os.path.basename(template_path)
         
-        # Template matching
-        result = cv2.matchTemplate(img_cv, template, cv2.TM_CCOEFF_NORMED)
-        min_val, max_val, min_loc, max_loc = cv2.minMaxLoc(result)
+        if DIAGNOSTIC_MODE and best_confidence > 0.5:  # Only show significant matches
+            print(f"[DIAGNOSTIC] Best {state_name} match: {best_confidence:.2f} ({best_template_name})")
         
-        self.last_confidence = max_val  # Store the confidence
+        return best_confidence, best_rect, best_template_name
+
+    def _is_state_change_allowed(self):
+        """Check if enough time has passed since last state change."""
+        return time.time() - self._last_state_change > self._min_state_change_interval
+
+    def _add_to_history(self, state):
+        """Add detection to history for state stability."""
+        current_time = time.time()
+        # Keep only recent history (last 10 seconds)
+        self._detection_history = [(t, s) for t, s in self._detection_history if current_time - t < 10]
+        self._detection_history.append((current_time, state))
+
+    def _get_stable_state(self, current_detection):
+        """Determine if we have enough consistent detections for a stable state."""
+        self._add_to_history(current_detection)
         
-        if DIAGNOSTIC_MODE:
-            print(f"[DIAGNOSTIC] Template match confidence: {max_val:.2f}")
+        if len(self._detection_history) < self._required_confirmations:
+            return None
         
-        if max_val >= threshold:
-            rect = (max_loc[0], max_loc[1], w, h)
-            self._last_match_rect = rect  # Store the match rectangle
-            return rect
-        self._last_match_rect = None
+        # Check if last N detections are consistent
+        recent_states = [state for _, state in self._detection_history[-self._required_confirmations:]]
+        if all(state == current_detection for state in recent_states):
+            return current_detection
+        
         return None
 
     def detect_state(self) -> str:
@@ -195,29 +257,67 @@ class TemplateMatchDetector:
             if DIAGNOSTIC_MODE:
                 print(f"[DIAGNOSTIC] Screenshot size: {screenshot.size}")
             
-            # Look for the templates
-            active = self._match_template(screenshot, self.generating_img, 0.8)
-            if not active:  # Only check for idle if not active
-                idle = self._match_template(screenshot, self.idle_img, 0.8)
-            else:
-                idle = None
-
+            # Match all templates for both states
+            idle_confidence, idle_rect, idle_template = self._match_templates(screenshot, self.idle_imgs, "idle")
+            active_confidence, active_rect, active_template = self._match_templates(screenshot, self.active_imgs, "active")
+            
+            # Store confidences for debugging
+            self.last_idle_confidence = idle_confidence
+            self.last_active_confidence = active_confidence
+            
+            # Determine the detected state based on confidence and thresholds
+            detected_state = AgentState.UNKNOWN
+            
+            # Both need to meet minimum threshold
+            idle_valid = idle_confidence >= self.confidence_threshold
+            active_valid = active_confidence >= self.confidence_threshold
+            
+            if active_valid and idle_valid:
+                # Both detected - use confidence gap to decide
+                confidence_gap = abs(active_confidence - idle_confidence)
+                if confidence_gap >= self.min_confidence_gap:
+                    if active_confidence > idle_confidence:
+                        detected_state = AgentState.ACTIVE
+                        self.last_confidence = active_confidence
+                        self._last_match_rect = active_rect
+                    else:
+                        detected_state = AgentState.IDLE
+                        self.last_confidence = idle_confidence
+                        self._last_match_rect = idle_rect
+                else:
+                    # Confidence too close - remain unknown to avoid flickering
+                    detected_state = AgentState.UNKNOWN
+                    if DIAGNOSTIC_MODE:
+                        print(f"[DIAGNOSTIC] Confidence gap too small ({confidence_gap:.2f}) - staying unknown")
+                        
+            elif active_valid:
+                detected_state = AgentState.ACTIVE
+                self.last_confidence = active_confidence
+                self._last_match_rect = active_rect
+            elif idle_valid:
+                detected_state = AgentState.IDLE
+                self.last_confidence = idle_confidence
+                self._last_match_rect = idle_rect
+            
+            # Apply state stability check
+            stable_state = self._get_stable_state(detected_state)
+            
             if DIAGNOSTIC_MODE:
-                if active:
-                    print(f"[DIAGNOSTIC] Found active button at: {active}")
-                if idle:
-                    print(f"[DIAGNOSTIC] Found idle button at: {idle}")
-                if not active and not idle:
-                    print("[DIAGNOSTIC] No buttons found in current screenshot")
-
-            if active:
-                return AgentState.ACTIVE
-            elif idle:
-                return AgentState.IDLE
-            return AgentState.UNKNOWN
+                print(f"[DIAGNOSTIC] Detected: {detected_state}, Stable: {stable_state}")
+                if detected_state != AgentState.UNKNOWN:
+                    print(f"[DIAGNOSTIC] Active conf: {active_confidence:.2f}, Idle conf: {idle_confidence:.2f}")
+            
+            # Only return stable state if we have enough confirmations
+            if stable_state is not None:
+                if stable_state != AgentState.UNKNOWN:
+                    self._last_state_change = time.time()
+                return stable_state
+            
+            # If no stable state yet, return current detection but don't change timestamp
+            return detected_state
                 
         except Exception as e:
-            print(f"[ERROR] Template matching error: {str(e)}")
+            print(f"[ERROR] Enhanced template matching error: {str(e)}")
             return AgentState.UNKNOWN
 
 # === OCR Strategy ===
@@ -310,7 +410,7 @@ class AgentMonitor:
                 self.last_confidence = detector.last_confidence
             
             # Store detection rectangle if available
-            if isinstance(detector, TemplateMatchDetector) and hasattr(detector, '_last_match_rect'):
+            if hasattr(detector, '_last_match_rect'):
                 self.last_detection_rect = detector._last_match_rect
             
             if state == AgentState.IDLE:
@@ -354,11 +454,6 @@ class AgentMonitor:
                 self.current_state = AgentState.UNKNOWN
                 # Unknown state could indicate detection issues, but not necessarily a failure
 
-        if self.state == AgentState.IDLE:
-            self.state = AgentState.ACTIVE
-            if not self.muted:
-                self.sound_player.play_sound("thinking")
-        
         # Only record failure if we couldn't detect any state at all
         if not detection_successful and self.current_state == AgentState.UNKNOWN:
             self.telemetry.record_failure("Unable to detect any agent state")
@@ -830,7 +925,18 @@ def main():
     executor = CommandExecutor() if COMMAND_QUEUE_ENABLED else None
 
     # Create detectors
-    detectors = [TemplateMatchDetector(IDLE_IMAGE, ACTIVE_IMAGE)]
+    if USE_LEGACY_DETECTOR:
+        # Fallback to legacy single-template detector
+        detectors = [TemplateMatchDetector(IDLE_TEMPLATES[0], ACTIVE_TEMPLATES[0])]
+    else:
+        # Use enhanced multi-template detector with custom parameters
+        detectors = [EnhancedTemplateMatchDetector(
+            IDLE_TEMPLATES, 
+            ACTIVE_TEMPLATES,
+            confidence_threshold=CONFIDENCE_THRESHOLD,
+            min_confidence_gap=MIN_CONFIDENCE_GAP
+        )]
+    
     if OCR_ENABLED:
         detectors.append(OCRDetector())
 

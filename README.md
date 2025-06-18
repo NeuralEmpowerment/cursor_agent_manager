@@ -196,11 +196,10 @@ agent_monitor_poc/
 ├── run_analytics.sh         # Analytics CLI wrapper script
 ├── assets/                  # Organized asset directory
 │   ├── README.md           # Asset organization documentation
-│   ├── ui/                 # User interface assets
-│   │   └── buttons/        # UI button template images
-│   │       ├── idle_button.png
-│   │       ├── generating_button.png
-│   │       └── run_button.png
+│   ├── ui-cursor/          # Cursor IDE UI element images
+│   │   ├── idle_button.png
+│   │   ├── generating_button.png
+│   │   └── run_button.png
 │   └── audio/              # Audio assets
 │       ├── alerts/         # Sound notification files
 │       │   ├── alert_*.wav # Various alert sound files
@@ -241,15 +240,17 @@ agent_monitor_poc/
 ## Configuration
 
 ### Template Images
-Template images are now organized in the `assets/ui/buttons/` directory:
-   - `assets/ui/buttons/generating_button.png`: AI agent's active state indicator
-   - `assets/ui/buttons/idle_button.png`: AI agent's idle state indicator
-   - `assets/ui/buttons/run_button.png`: AI agent ready but waiting for user action
+Template images are organized in the `assets/ui-cursor/` directory for Cursor IDE-specific UI elements:
+   - `assets/ui-cursor/generating_button.png`: AI agent's active state indicator
+   - `assets/ui-cursor/idle_button.png`: AI agent's idle state indicator
+   - `assets/ui-cursor/run_button.png`: AI agent ready but waiting for user action
 
 You can create these images by:
-1. Taking a screenshot when the AI agent is in each state
+1. Taking a screenshot when the Cursor AI agent is in each state
 2. Cropping to include just the state indicator
-3. Saving in PNG format in the appropriate assets directory
+3. Saving in PNG format in the `assets/ui-cursor/` directory
+
+The `ui-cursor` naming convention makes it clear these are Cursor IDE-specific templates and allows for future expansion to support other IDEs or Cursor versions.
 
 ### Sound Alerts
 Sound files are organized in the `assets/audio/alerts/` directory:
