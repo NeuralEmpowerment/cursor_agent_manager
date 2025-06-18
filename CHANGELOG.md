@@ -5,6 +5,40 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0] - 2024-12-19
+
+### Added
+- **Enhanced Visual Status Indicators** - Emoji status display for instant recognition
+  - 💤 emoji for idle state detection
+  - 🚀 emoji for active/generating state
+  - ❓ emoji for unknown states
+- **Professional Asset Organization** - Dedicated `/assets` directory structure
+  - `/assets/ui/buttons/` for UI template images
+  - `/assets/audio/alerts/` for sound notification files  
+  - `/assets/audio/scripts/` for audio generation utilities
+- **Enhanced Visual Hierarchy** - Improved typography and spacing throughout interface
+
+### Changed
+- **Improved UI Formatting** - Better spacing, typography, and layout design
+  - Increased status text size from 13pt to 15pt for better readability
+  - Enhanced button sizing from 45x28 to 50x32 pixels for improved usability
+  - Better padding and spacing between UI elements for professional appearance
+  - Optimized confidence display with 11pt sizing for secondary information
+- **Project Structure Reorganization** - Clean separation of assets from source code
+  - Moved button template images from root to organized asset directory
+  - Consolidated audio files from scattered `/audio` directory to structured location
+  - Updated all asset path references in codebase for new organization
+
+### Updated
+- **Asset Path References** - All file paths updated to new organized structure
+- **Issues Documentation** - Marked completed UI improvements and asset organization
+- **Root Directory Cleanup** - Removed asset files from main source directory
+
+### Technical Improvements
+- **Maintainable Code Structure** - Better organization for long-term project health
+- **Asset Discoverability** - Clear, logical file organization by type and function
+- **Enhanced User Experience** - Visual feedback improvements with emoji indicators
+
 ## [1.0.0] - 2024-12-19
 
 ### Added
@@ -104,4 +138,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Cursor IDE** - Specifically designed for Cursor IDE agent monitoring
 - **ARM64/Intel** - Universal compatibility with Apple Silicon and Intel Macs
 
+[1.1.0]: https://github.com/your-repo/agent-monitor-poc/releases/tag/v1.1.0
 [1.0.0]: https://github.com/your-repo/agent-monitor-poc/releases/tag/v1.0.0 
