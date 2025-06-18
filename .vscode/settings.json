@@ -1,0 +1,93 @@
+{
+    "workbench.colorCustomizations": {
+        // Modern dark theme with good contrast and readability
+        "activityBar.background": "#1A237E", // Deep indigo for focus and creativity
+        "activityBar.foreground": "#E8EAF6", // Soft white for clarity
+        "activityBar.activeBorder": "#FF4081", // Vibrant pink for energy
+        "activityBar.inactiveForeground": "#9FA8DA", // Muted indigo for balance
+        "activityBarBadge.background": "#FF4081", // Matching pink for cohesion
+        "activityBarBadge.foreground": "#FFFFFF", // Pure white for readability
+        // Title bar with subtle contrast
+        "titleBar.activeBackground": "#1E1E1E",
+        "titleBar.activeForeground": "#FFFFFF",
+        "titleBar.inactiveBackground": "#252526",
+        "titleBar.inactiveForeground": "#888888",
+        // Sidebar with clear hierarchy
+        "sideBar.background": "#252526",
+        "sideBar.foreground": "#CCCCCC",
+        "sideBarTitle.foreground": "#FFFFFF",
+        "sideBarSectionHeader.background": "#2D2D2D",
+        "sideBarSectionHeader.foreground": "#FFFFFF",
+        // Editor with excellent contrast and subtle highlights
+        "editor.background": "#1E1E1E",
+        "editor.foreground": "#D4D4D4",
+        "editorLineNumber.foreground": "#858585",
+        "editorLineNumber.activeForeground": "#C6C6C6",
+        "editor.selectionBackground": "#264F78",
+        "editor.selectionHighlightBackground": "#2D2D2D",
+        "editor.lineHighlightBackground": "#282828",
+        // Status bar with clear indicators
+        "statusBar.background": "#007ACC",
+        "statusBar.foreground": "#FFFFFF",
+        "statusBar.debuggingBackground": "#CC6633",
+        "statusBar.debuggingForeground": "#FFFFFF",
+        "statusBar.noFolderBackground": "#68217A",
+        // Tabs with clear active/inactive states
+        "tab.activeBackground": "#1E1E1E",
+        "tab.activeForeground": "#FFFFFF",
+        "tab.inactiveBackground": "#2D2D2D",
+        "tab.inactiveForeground": "#999999",
+        "tab.activeBorder": "#007ACC",
+        // Terminal with Solarized-inspired colors
+        "terminal.background": "#1E1E1E",
+        "terminal.foreground": "#D4D4D4",
+        "terminal.ansiBlack": "#073642",
+        "terminal.ansiBlue": "#268BD2",
+        "terminal.ansiCyan": "#2AA198",
+        "terminal.ansiGreen": "#859900",
+        "terminal.ansiMagenta": "#D33682",
+        "terminal.ansiRed": "#DC322F",
+        "terminal.ansiWhite": "#EEE8D5",
+        "terminal.ansiYellow": "#B58900",
+        "terminal.ansiBrightBlack": "#002B36",
+        "terminal.ansiBrightBlue": "#839496",
+        "terminal.ansiBrightCyan": "#93A1A1",
+        "terminal.ansiBrightGreen": "#586E75",
+        "terminal.ansiBrightMagenta": "#6C71C4",
+        "terminal.ansiBrightRed": "#CB4B16",
+        "terminal.ansiBrightWhite": "#FDF6E3",
+        "terminal.ansiBrightYellow": "#657B83"
+    },
+    "python.linting.enabled": true,
+    "python.linting.mypyEnabled": true,
+    "python.linting.pylintEnabled": false,
+    "python.linting.flake8Enabled": false,
+    "python.linting.mypyArgs": [
+        "--follow-imports=silent",
+        "--warn-redundant-casts",
+        "--warn-unused-ignores",
+        "--disallow-untyped-defs",
+        "--disallow-incomplete-defs",
+        "--check-untyped-defs",
+        "--strict-optional"
+    ],
+    "python.formatting.provider": "black",
+    "python.formatting.blackArgs": [
+        "--line-length=120"
+    ],
+    "[python]": {
+        "editor.formatOnSave": true,
+        "editor.codeActionsOnSave": {
+            "source.organizeImports": "explicit"
+        }
+    },
+    "editor.rulers": [
+        120
+    ],
+    "files.exclude": {
+        "**/__pycache__": true,
+        "**/.mypy_cache": true,
+        "**/.pytest_cache": true,
+        "**/.ruff_cache": true
+    }
+}
