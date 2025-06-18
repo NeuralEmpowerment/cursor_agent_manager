@@ -36,8 +36,8 @@ import objc
 from Foundation import NSObject, NSMakeRect, NSMakePoint, NSLayoutConstraint
 
 # === Config ===
-IDLE_IMAGE = "idle_button.png"
-ACTIVE_IMAGE = "generating_button.png"
+IDLE_IMAGE = "assets/ui/buttons/idle_button.png"
+ACTIVE_IMAGE = "assets/ui/buttons/generating_button.png"
 CHECK_INTERVAL_SEC = 2
 TELEMETRY_FILE = "telemetry.json"
 AUTO_CLICK_ENABLED = False
@@ -46,7 +46,7 @@ COMMAND_QUEUE_ENABLED = True
 DIAGNOSTIC_MODE = True
 
 # Sound configuration
-AUDIO_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "audio")
+AUDIO_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "audio", "alerts")
 ALERT_SOUNDS = {
     "idle": "alert_waiting.wav",
     "error": "alert_error.wav",
@@ -392,9 +392,9 @@ class ControlPanel(NSObject):
         self.show_debug = False
         self.alpha = 0.95
         
-        # Create the window
+        # Create the window - much more compact
         self.window = AppKit.NSWindow.alloc().initWithContentRect_styleMask_backing_defer_(
-            NSMakeRect(0, 0, 320, 580),  # Initial size
+            NSMakeRect(0, 0, 240, 180),  # Compact size for overlay use
             AppKit.NSWindowStyleMaskTitled | 
             AppKit.NSWindowStyleMaskClosable | 
             AppKit.NSWindowStyleMaskResizable |
@@ -404,7 +404,7 @@ class ControlPanel(NSObject):
         )
         
         # Configure window properties
-        self.window.setTitle_("Agent Monitor Control")
+        self.window.setTitle_("Agent Monitor Compact")
         self.window.setTitlebarAppearsTransparent_(True)
         self.window.setLevel_(AppKit.NSFloatingWindowLevel)
         self.window.setMovableByWindowBackground_(True)
@@ -436,7 +436,10 @@ class ControlPanel(NSObject):
         return self
 
     def _setup_ui_with_autolayout(self):
-        """Create and layout UI components using Auto Layout."""
+        """Create and layout UI components using Auto Layout - Compact Design."""
+        self.stats_window = None
+        self.show_stats = False
+        
         # --- Helpers to create styled UI elements without frames ---
         def create_label(panel_self, text, size=12, is_bold=False, align='left'):
             label = panel_self.createStyledLabelWithFrame_text_(NSMakeRect(0,0,0,0), text) # Frame is dummy
@@ -449,22 +452,18 @@ class ControlPanel(NSObject):
             panel_self.content_view.addSubview_(label)
             return label
 
-        def create_button(panel_self, title):
+        def create_compact_button(panel_self, title, size=11):
             button = panel_self.createStyledButtonWithFrame_title_(NSMakeRect(0,0,0,0), title) # Frame is dummy
+            button.setFont_(AppKit.NSFont.systemFontOfSize_(size))
             button.setTranslatesAutoresizingMaskIntoConstraints_(False)
             panel_self.content_view.addSubview_(button)
             return button
 
-        def create_box(panel_self, title):
-            box = panel_self.createStyledBoxWithFrame_title_(NSMakeRect(0,0,0,0), title) # Frame is dummy
-            box.setTranslatesAutoresizingMaskIntoConstraints_(False)
-            panel_self.content_view.addSubview_(box)
-            return box
-
-        # --- Create UI Elements ---
-        title = create_label(self, "Agent Monitor", 24, is_bold=True, align='center')
+        # --- Create Compact UI Elements ---
+        # Header with title and settings
+        title = create_label(self, "Agent Monitor", 14, is_bold=True, align='center')
         
-        settings_btn = create_button(self, "⚙️")
+        settings_btn = create_compact_button(self, "⚙️")
         settings_btn.setTarget_(self)
         settings_btn.setAction_(objc.selector(self.toggleAlphaSlider_, signature=b"v@:"))
         
@@ -478,136 +477,112 @@ class ControlPanel(NSObject):
         self.alpha_slider.setHidden_(True)
         self.content_view.addSubview_(self.alpha_slider)
 
-        status_box = create_box(self, "Status")
-        self.status_label = create_label(self, "Running", 24, align='center')
-        self.status_label.setTranslatesAutoresizingMaskIntoConstraints_(False)
-        status_box.contentView().addSubview_(self.status_label)
+        # Status display (improved formatting)
+        self.status_state_label = create_label(self, "Unknown", 15, is_bold=True, align='center')
+        self.confidence_label = create_label(self, "Confidence: -", 11, align='center')
 
-        controls_box = create_box(self, "Controls")
-        self.toggle_btn = create_button(self, "Pause Monitor")
+        # Compact button row
+        self.toggle_btn = create_compact_button(self, "⏸️")  # Pause/Resume
         self.toggle_btn.setTarget_(self)
         self.toggle_btn.setAction_(objc.selector(self.toggleMonitor_, signature=b"v@:"))
-        self.toggle_btn.setTranslatesAutoresizingMaskIntoConstraints_(False)
-        controls_box.contentView().addSubview_(self.toggle_btn)
         
-        self.mute_btn = create_button(self, "Mute Sounds")
+        self.mute_btn = create_compact_button(self, "🔊")  # Mute/Unmute
         self.mute_btn.setTarget_(self)
         self.mute_btn.setAction_(objc.selector(self.toggleMute_, signature=b"v@:"))
-        self.mute_btn.setTranslatesAutoresizingMaskIntoConstraints_(False)
-        controls_box.contentView().addSubview_(self.mute_btn)
-
-        stats_box = create_box(self, "Statistics")
-        self.detections_label = self._add_key_value_labels(stats_box, "Idle Detections:", "0")
-        self.failures_label = self._add_key_value_labels(stats_box, "Detection Failures:", "0")
-        self.last_detection_label = self._add_key_value_labels(stats_box, "Last Idle:", "Never")
-
-        diag_box = create_box(self, "Diagnostics")
-        self.match_confidence_label = self._add_key_value_labels(diag_box, "Match Confidence:", "-")
-        self.current_state_label = self._add_key_value_labels(diag_box, "Current State:", "Unknown")
         
-        self.debug_btn = create_button(self, "Show Debug View")
+        self.stats_btn = create_compact_button(self, "📊")  # Stats popup
+        self.stats_btn.setTarget_(self)
+        self.stats_btn.setAction_(objc.selector(self.toggleStatsWindow_, signature=b"v@:"))
+        
+        self.debug_btn = create_compact_button(self, "🐛")  # Debug view
         self.debug_btn.setTarget_(self)
         self.debug_btn.setAction_(objc.selector(self.toggleDebugView_, signature=b"v@:"))
 
-        # --- Activate Constraints ---
-        padding = 20
-        box_padding = 10
+        # --- Activate Constraints - Compact Layout ---
+        padding = 10
+        small_padding = 5
         NSLayoutConstraint.activateConstraints_([
+            # Header row
             title.topAnchor().constraintEqualToAnchor_constant_(self.content_view.topAnchor(), padding),
             title.leadingAnchor().constraintEqualToAnchor_constant_(self.content_view.leadingAnchor(), padding),
-            title.trailingAnchor().constraintEqualToAnchor_constant_(self.content_view.trailingAnchor(), -padding),
+            title.trailingAnchor().constraintEqualToAnchor_constant_(settings_btn.leadingAnchor(), -small_padding),
 
             settings_btn.topAnchor().constraintEqualToAnchor_constant_(self.content_view.topAnchor(), padding),
             settings_btn.trailingAnchor().constraintEqualToAnchor_constant_(self.content_view.trailingAnchor(), -padding),
-            settings_btn.widthAnchor().constraintEqualToConstant_(30),
-            settings_btn.heightAnchor().constraintEqualToConstant_(30),
+            settings_btn.widthAnchor().constraintEqualToConstant_(24),
+            settings_btn.heightAnchor().constraintEqualToConstant_(24),
 
-            self.alpha_slider.topAnchor().constraintEqualToAnchor_constant_(settings_btn.bottomAnchor(), box_padding),
+            # Alpha slider (hidden by default)
+            self.alpha_slider.topAnchor().constraintEqualToAnchor_constant_(title.bottomAnchor(), small_padding),
             self.alpha_slider.leadingAnchor().constraintEqualToAnchor_constant_(self.content_view.leadingAnchor(), padding),
             self.alpha_slider.trailingAnchor().constraintEqualToAnchor_constant_(self.content_view.trailingAnchor(), -padding),
 
-            status_box.topAnchor().constraintEqualToAnchor_constant_(self.alpha_slider.bottomAnchor(), padding),
-            status_box.leadingAnchor().constraintEqualToAnchor_constant_(self.content_view.leadingAnchor(), padding),
-            status_box.trailingAnchor().constraintEqualToAnchor_constant_(self.content_view.trailingAnchor(), -padding),
-            self.status_label.centerXAnchor().constraintEqualToAnchor_(status_box.contentView().centerXAnchor()),
-            self.status_label.centerYAnchor().constraintEqualToAnchor_(status_box.contentView().centerYAnchor()),
-            self.status_label.heightAnchor().constraintEqualToConstant_(40),
+            # Status display (improved spacing)
+            self.status_state_label.topAnchor().constraintEqualToAnchor_constant_(self.alpha_slider.bottomAnchor(), padding + 5),
+            self.status_state_label.leadingAnchor().constraintEqualToAnchor_constant_(self.content_view.leadingAnchor(), padding),
+            self.status_state_label.trailingAnchor().constraintEqualToAnchor_constant_(self.content_view.trailingAnchor(), -padding),
 
-            controls_box.topAnchor().constraintEqualToAnchor_constant_(status_box.bottomAnchor(), padding),
-            controls_box.leadingAnchor().constraintEqualToAnchor_constant_(self.content_view.leadingAnchor(), padding),
-            controls_box.trailingAnchor().constraintEqualToAnchor_constant_(self.content_view.trailingAnchor(), -padding),
-            self.toggle_btn.topAnchor().constraintEqualToAnchor_constant_(controls_box.contentView().topAnchor(), box_padding),
-            self.toggle_btn.leadingAnchor().constraintEqualToAnchor_constant_(controls_box.contentView().leadingAnchor(), box_padding),
-            self.toggle_btn.trailingAnchor().constraintEqualToAnchor_constant_(controls_box.contentView().trailingAnchor(), -box_padding),
-            self.mute_btn.topAnchor().constraintEqualToAnchor_constant_(self.toggle_btn.bottomAnchor(), box_padding),
-            self.mute_btn.leadingAnchor().constraintEqualToAnchor_constant_(controls_box.contentView().leadingAnchor(), box_padding),
-            self.mute_btn.trailingAnchor().constraintEqualToAnchor_constant_(controls_box.contentView().trailingAnchor(), -box_padding),
-            self.mute_btn.bottomAnchor().constraintEqualToAnchor_constant_(controls_box.contentView().bottomAnchor(), -box_padding),
-            self.toggle_btn.heightAnchor().constraintEqualToConstant_(30),
-            self.mute_btn.heightAnchor().constraintEqualToConstant_(30),
+            self.confidence_label.topAnchor().constraintEqualToAnchor_constant_(self.status_state_label.bottomAnchor(), 4),
+            self.confidence_label.leadingAnchor().constraintEqualToAnchor_constant_(self.content_view.leadingAnchor(), padding),
+            self.confidence_label.trailingAnchor().constraintEqualToAnchor_constant_(self.content_view.trailingAnchor(), -padding),
 
-            stats_box.topAnchor().constraintEqualToAnchor_constant_(controls_box.bottomAnchor(), padding),
-            stats_box.leadingAnchor().constraintEqualToAnchor_constant_(self.content_view.leadingAnchor(), padding),
-            stats_box.trailingAnchor().constraintEqualToAnchor_constant_(self.content_view.trailingAnchor(), -padding),
-            
-            self.detections_label.topAnchor().constraintEqualToAnchor_constant_(stats_box.contentView().topAnchor(), 10),
-            self.failures_label.topAnchor().constraintEqualToAnchor_constant_(self.detections_label.bottomAnchor(), 10),
-            self.last_detection_label.topAnchor().constraintEqualToAnchor_constant_(self.failures_label.bottomAnchor(), 10),
-            self.last_detection_label.bottomAnchor().constraintEqualToAnchor_constant_(stats_box.contentView().bottomAnchor(), -10),
+            # Button row (improved spacing and sizing)
+            self.toggle_btn.topAnchor().constraintEqualToAnchor_constant_(self.confidence_label.bottomAnchor(), padding + 2),
+            self.toggle_btn.leadingAnchor().constraintEqualToAnchor_constant_(self.content_view.leadingAnchor(), padding),
+            self.toggle_btn.widthAnchor().constraintEqualToConstant_(50),
+            self.toggle_btn.heightAnchor().constraintEqualToConstant_(32),
 
-            diag_box.topAnchor().constraintEqualToAnchor_constant_(stats_box.bottomAnchor(), padding),
-            diag_box.leadingAnchor().constraintEqualToAnchor_constant_(self.content_view.leadingAnchor(), padding),
-            diag_box.trailingAnchor().constraintEqualToAnchor_constant_(self.content_view.trailingAnchor(), -padding),
+            self.mute_btn.topAnchor().constraintEqualToAnchor_(self.toggle_btn.topAnchor()),
+            self.mute_btn.leadingAnchor().constraintEqualToAnchor_constant_(self.toggle_btn.trailingAnchor(), small_padding + 2),
+            self.mute_btn.widthAnchor().constraintEqualToConstant_(50),
+            self.mute_btn.heightAnchor().constraintEqualToConstant_(32),
 
-            self.match_confidence_label.topAnchor().constraintEqualToAnchor_constant_(diag_box.contentView().topAnchor(), 10),
-            self.current_state_label.topAnchor().constraintEqualToAnchor_constant_(self.match_confidence_label.bottomAnchor(), 10),
-            self.current_state_label.bottomAnchor().constraintEqualToAnchor_constant_(diag_box.contentView().bottomAnchor(), -10),
-            
-            self.debug_btn.topAnchor().constraintEqualToAnchor_constant_(diag_box.bottomAnchor(), padding),
-            self.debug_btn.leadingAnchor().constraintEqualToAnchor_constant_(self.content_view.leadingAnchor(), padding),
+            self.stats_btn.topAnchor().constraintEqualToAnchor_(self.toggle_btn.topAnchor()),
+            self.stats_btn.leadingAnchor().constraintEqualToAnchor_constant_(self.mute_btn.trailingAnchor(), small_padding + 2),
+            self.stats_btn.widthAnchor().constraintEqualToConstant_(50),
+            self.stats_btn.heightAnchor().constraintEqualToConstant_(32),
+
+            self.debug_btn.topAnchor().constraintEqualToAnchor_(self.toggle_btn.topAnchor()),
+            self.debug_btn.leadingAnchor().constraintEqualToAnchor_constant_(self.stats_btn.trailingAnchor(), small_padding + 2),
             self.debug_btn.trailingAnchor().constraintEqualToAnchor_constant_(self.content_view.trailingAnchor(), -padding),
-            self.debug_btn.heightAnchor().constraintEqualToConstant_(30),
-            self.debug_btn.bottomAnchor().constraintLessThanOrEqualToAnchor_constant_(self.content_view.bottomAnchor(), -padding),
+            self.debug_btn.heightAnchor().constraintEqualToConstant_(32),
+
+            # Bottom constraint
+            self.toggle_btn.bottomAnchor().constraintLessThanOrEqualToAnchor_constant_(self.content_view.bottomAnchor(), -padding),
         ])
 
-    def _add_key_value_labels(self, view, key_text, value_text):
-        key_label = self.createStyledLabelWithFrame_text_(NSMakeRect(0,0,0,0), key_text)
-        key_label.setAlignment_(AppKit.NSTextAlignmentLeft)
-        key_label.setTranslatesAutoresizingMaskIntoConstraints_(False)
-        view.contentView().addSubview_(key_label)
 
-        value_label = self.createStyledLabelWithFrame_text_(NSMakeRect(0,0,0,0), value_text)
-        value_label.setAlignment_(AppKit.NSTextAlignmentRight)
-        value_label.setTranslatesAutoresizingMaskIntoConstraints_(False)
-        view.contentView().addSubview_(value_label)
-
-        NSLayoutConstraint.activateConstraints_([
-            key_label.leadingAnchor().constraintEqualToAnchor_constant_(view.contentView().leadingAnchor(), 10),
-            value_label.trailingAnchor().constraintEqualToAnchor_constant_(view.contentView().trailingAnchor(), -10),
-            key_label.topAnchor().constraintEqualToAnchor_(value_label.topAnchor()),
-            key_label.trailingAnchor().constraintEqualToAnchor_constant_(value_label.leadingAnchor(), -10),
-        ])
-        
-        key_label.setContentHuggingPriority_forOrientation_(251, AppKit.NSLayoutConstraintOrientationHorizontal)
-        value_label.setContentCompressionResistancePriority_forOrientation_(751, AppKit.NSLayoutConstraintOrientationHorizontal)
-
-        return value_label
 
     def updateDisplay_(self, timer):
         """Update the display with current status."""
-        status = "Paused" if self.monitor.paused else "Running"
-        self.status_label.setStringValue_(status)
-        
-        self.detections_label.setStringValue_(f"{self.monitor.telemetry.idle_detections}")
-        self.failures_label.setStringValue_(f"{self.monitor.telemetry.detection_failures}")
-        last_detection_time = self._formatTime_(self.monitor.telemetry.last_idle_detection)
-        self.last_detection_label.setStringValue_(f"{last_detection_time}")
-        
-        confidence = f"{self.monitor.last_confidence:.2f}" if self.monitor.last_confidence is not None else "-"
-        self.match_confidence_label.setStringValue_(confidence)
-        
+        # Update state display with emojis
         state = self.monitor.current_state if self.monitor.current_state else "Unknown"
-        self.current_state_label.setStringValue_(state)
+        status = "Paused" if self.monitor.paused else "Running"
+        
+        # Add emojis based on state
+        if state == "idle":
+            state_with_emoji = "💤 idle"
+        elif state == "active":
+            state_with_emoji = "🚀 active"
+        else:
+            state_with_emoji = "❓ Unknown"
+            
+        self.status_state_label.setStringValue_(f"{state_with_emoji} • {status}")
+        
+        # Update confidence display
+        confidence = f"{self.monitor.last_confidence:.2f}" if self.monitor.last_confidence is not None else "-"
+        self.confidence_label.setStringValue_(f"Confidence: {confidence}")
+        
+        # Update button states
+        self.toggle_btn.setTitle_("▶️" if self.monitor.paused else "⏸️")
+        self.mute_btn.setTitle_("🔇" if self.monitor.muted else "🔊")
+        
+        # Update stats window if open
+        if self.show_stats and hasattr(self, 'stats_detections_label'):
+            self.stats_detections_label.setStringValue_(f"{self.monitor.telemetry.idle_detections}")
+            self.stats_failures_label.setStringValue_(f"{self.monitor.telemetry.detection_failures}")
+            last_detection_time = self._formatTime_(self.monitor.telemetry.last_idle_detection)
+            self.stats_last_detection_label.setStringValue_(f"{last_detection_time}")
         
         self._updateDebugView_(None)
 
@@ -619,18 +594,101 @@ class ControlPanel(NSObject):
         self.monitor.toggle_muted()
         self.mute_btn.setTitle_("Mute Sounds" if not self.monitor.muted else "Unmute Sounds")
         
+    def toggleStatsWindow_(self, sender):
+        """Toggle the statistics popup window."""
+        self.show_stats = not self.show_stats
+        if self.show_stats:
+            if not self.stats_window:
+                self._createStatsWindow()
+            self.stats_window.makeKeyAndOrderFront_(None)
+        else:
+            if self.stats_window:
+                self.stats_window.orderOut_(None)
+
     def toggleDebugView_(self, sender):
         self.show_debug = not self.show_debug
         if self.show_debug:
             if not self.debug_window:
                 self._createDebugWindow()
             self.debug_window.makeKeyAndOrderFront_(None)
-            self.debug_btn.setTitle_("Hide Debug View")
         else:
             if self.debug_window:
                 self.debug_window.orderOut_(None)
-            self.debug_btn.setTitle_("Show Debug View")
             
+    def _createStatsWindow(self):
+        """Create the statistics popup window."""
+        self.stats_window = AppKit.NSWindow.alloc().initWithContentRect_styleMask_backing_defer_(
+            NSMakeRect(0, 0, 300, 200),
+            AppKit.NSWindowStyleMaskTitled | 
+            AppKit.NSWindowStyleMaskClosable | 
+            AppKit.NSWindowStyleMaskResizable,
+            AppKit.NSBackingStoreBuffered,
+            False
+        )
+        
+        self.stats_window.setTitle_("Agent Monitor Statistics")
+        self.stats_window.setLevel_(AppKit.NSFloatingWindowLevel)
+        
+        # Position relative to main window
+        main_frame = self.window.frame()
+        x = main_frame.origin.x + main_frame.size.width + 10
+        y = main_frame.origin.y
+        self.stats_window.setFrameOrigin_(NSMakePoint(x, y))
+        
+        bg_color = AppKit.NSColor.colorWithCalibratedRed_green_blue_alpha_(0.2, 0.2, 0.2, 0.95)
+        self.stats_window.setBackgroundColor_(bg_color)
+        
+        # Create content view
+        content_view = AppKit.NSView.alloc().init()
+        self.stats_window.setContentView_(content_view)
+        
+        # Create labels
+        def create_stats_label(text, size=12, is_bold=False):
+            label = self.createStyledLabelWithFrame_text_(NSMakeRect(0,0,0,0), text)
+            font = AppKit.NSFont.boldSystemFontOfSize_(size) if is_bold else AppKit.NSFont.systemFontOfSize_(size)
+            label.setFont_(font)
+            label.setTranslatesAutoresizingMaskIntoConstraints_(False)
+            content_view.addSubview_(label)
+            return label
+        
+        title_label = create_stats_label("Statistics", 16, is_bold=True)
+        
+        detections_key = create_stats_label("Idle Detections:")
+        self.stats_detections_label = create_stats_label("0")
+        self.stats_detections_label.setAlignment_(AppKit.NSTextAlignmentRight)
+        
+        failures_key = create_stats_label("Detection Failures:")
+        self.stats_failures_label = create_stats_label("0")
+        self.stats_failures_label.setAlignment_(AppKit.NSTextAlignmentRight)
+        
+        last_detection_key = create_stats_label("Last Idle Detection:")
+        self.stats_last_detection_label = create_stats_label("Never")
+        self.stats_last_detection_label.setAlignment_(AppKit.NSTextAlignmentRight)
+        
+        # Layout with constraints
+        padding = 20
+        line_spacing = 15
+        NSLayoutConstraint.activateConstraints_([
+            title_label.topAnchor().constraintEqualToAnchor_constant_(content_view.topAnchor(), padding),
+            title_label.centerXAnchor().constraintEqualToAnchor_(content_view.centerXAnchor()),
+            
+            detections_key.topAnchor().constraintEqualToAnchor_constant_(title_label.bottomAnchor(), padding),
+            detections_key.leadingAnchor().constraintEqualToAnchor_constant_(content_view.leadingAnchor(), padding),
+            self.stats_detections_label.topAnchor().constraintEqualToAnchor_(detections_key.topAnchor()),
+            self.stats_detections_label.trailingAnchor().constraintEqualToAnchor_constant_(content_view.trailingAnchor(), -padding),
+            
+            failures_key.topAnchor().constraintEqualToAnchor_constant_(detections_key.bottomAnchor(), line_spacing),
+            failures_key.leadingAnchor().constraintEqualToAnchor_constant_(content_view.leadingAnchor(), padding),
+            self.stats_failures_label.topAnchor().constraintEqualToAnchor_(failures_key.topAnchor()),
+            self.stats_failures_label.trailingAnchor().constraintEqualToAnchor_constant_(content_view.trailingAnchor(), -padding),
+            
+            last_detection_key.topAnchor().constraintEqualToAnchor_constant_(failures_key.bottomAnchor(), line_spacing),
+            last_detection_key.leadingAnchor().constraintEqualToAnchor_constant_(content_view.leadingAnchor(), padding),
+            self.stats_last_detection_label.topAnchor().constraintEqualToAnchor_(last_detection_key.topAnchor()),
+            self.stats_last_detection_label.trailingAnchor().constraintEqualToAnchor_constant_(content_view.trailingAnchor(), -padding),
+            self.stats_last_detection_label.bottomAnchor().constraintLessThanOrEqualToAnchor_constant_(content_view.bottomAnchor(), -padding),
+        ])
+
     def _createDebugWindow(self):
         self.debug_window = AppKit.NSWindow.alloc().initWithContentRect_styleMask_backing_defer_(
             NSMakeRect(0, 0, 400, 300),
