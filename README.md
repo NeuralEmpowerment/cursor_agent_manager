@@ -208,40 +208,87 @@ This script activates the virtual environment and starts the monitor. If the vir
 ```
 agent_monitor_poc/
 ├── agent_monitor_poc.py     # Main application
-├── container.py             # Dependency injection container
 ├── analytics_cli.py         # Analytics command-line interface
-├── run_analytics.sh         # Analytics CLI wrapper script
-├── assets/                  # Organized asset directory
-│   ├── README.md           # Asset organization documentation
-│   ├── ui-cursor/          # Cursor IDE UI element images
-│   │   ├── idle_button.png
-│   │   ├── generating_button.png
-│   │   └── run_button.png
-│   └── audio/              # Audio assets
-│       ├── alerts/         # Sound notification files
-│       │   ├── alert_*.wav # Various alert sound files
-│       └── scripts/        # Audio generation utilities
-│           ├── sound_generator.py
+├── capture_template.py     # Template capture utility
+├── container.py             # Dependency injection container
+├── CHANGELOG.md            # Version history and changes
+├── DEV_QUICKSTART.md       # Developer quickstart guide
+├── gotchas.md              # Development gotchas and notes
+├── issues.md               # Known issues and troubleshooting
+├── README.md               # This file
+├── requirements.txt        # Python dependencies
+├── TELEMETRY_README.md     # Detailed telemetry documentation
+├── run_analytics.sh        # Analytics CLI wrapper script
+├── run_tests.sh            # Test execution script
+├── run.sh                  # Application launcher script
+├── setup.sh                # Environment setup script
+├── assets/                 # Organized asset directory
+│   ├── README.md          # Asset organization documentation
+│   ├── ui-cursor/         # Cursor IDE UI element images
+│   │   ├── agent_active/  # Active state templates
+│   │   │   ├── active_template_*.png
+│   │   │   └── generating_button.png
+│   │   ├── agent_idle/    # Idle state templates
+│   │   │   ├── idle_button.png
+│   │   │   └── idle_template_*.png
+│   │   ├── run_command/   # Command execution templates
+│   │   │   └── run_button.png
+│   │   └── README.md      # UI assets documentation
+│   └── audio/             # Audio assets
+│       ├── alerts/        # Sound notification files
+│       │   ├── alert_ascending.wav
+│       │   ├── alert_completed.wav
+│       │   ├── alert_custom_tada.wav
+│       │   ├── alert_descending.wav
+│       │   ├── alert_error.wav
+│       │   ├── alert_idle_simple.wav
+│       │   ├── alert_notification.wav
+│       │   ├── alert_success.wav
+│       │   ├── alert_thinking.wav
+│       │   ├── alert_waiting.wav
+│       │   └── alert_warning.wav
+│       └── scripts/       # Audio generation utilities
 │           ├── create_alert.py
-│           └── custom_alert_example.py
-├── telemetry/               # Telemetry package
-│   ├── models.py           # Database models and schemas
-│   ├── interfaces.py       # Protocol definitions
+│           ├── custom_alert_example.py
+│           └── sound_generator.py
+├── database/              # Database files (git-ignored)
+│   ├── telemetry.db      # SQLite database
+│   └── charts/           # Generated charts
+├── docs/                  # Documentation
+│   ├── acceptance-tests/  # Acceptance testing documentation
+│   │   ├── acceptance-tests.md
+│   │   └── README-accpetance-tests.md
+│   ├── adrs/             # Architecture Decision Records
+│   │   ├── ADR-001.md
+│   │   ├── ADR-002.md
+│   │   ├── ADR-003.md
+│   │   ├── adr-XXX-template.md
+│   │   └── index.md
+│   ├── images/           # Documentation images
+│   │   ├── example_active-state.png
+│   │   └── example_idle-state.png
+│   ├── roadmap/          # Feature roadmap documentation
+│   │   ├── agent-automation.md
+│   │   ├── long-term.md
+│   │   ├── medium-term.md
+│   │   ├── README.md
+│   │   └── short-term.md
+│   └── roadmap-comprehensive.md
+├── telemetry/             # Telemetry package
+│   ├── __init__.py       # Package initialization
+│   ├── analytics.py      # Analytics service
+│   ├── interfaces.py     # Protocol definitions
+│   ├── models.py         # Database models and schemas
 │   ├── sqlite_repository.py # SQLite implementation
-│   ├── telemetry_service.py # Telemetry service
-│   └── analytics.py        # Analytics service
-├── tests/                   # Test infrastructure
-│   ├── README.md           # Test documentation
-│   ├── test_quickstart.py  # Quickstart demonstration script
-│   └── test_telemetry.py   # Telemetry system tests
-├── database/               # Database files (git-ignored)
-│   ├── telemetry.db       # SQLite database
-│   └── charts/            # Generated charts
-├── requirements.txt       # Python dependencies
-├── TELEMETRY_README.md    # Detailed telemetry documentation
-├── DEV_QUICKSTART.md      # Developer quickstart guide
-├── run_tests.sh           # Test execution script
-└── venv/                  # Virtual environment
+│   └── telemetry_service.py # Telemetry service
+├── tests/                 # Test infrastructure
+│   ├── __init__.py       # Package initialization
+│   ├── README.md         # Test documentation
+│   ├── test_detection.py # Detection system tests
+│   ├── test_quick_detection.py # Quick detection tests
+│   ├── test_quickstart.py # Quickstart demonstration script
+│   └── test_telemetry.py # Telemetry system tests
+└── venv/                 # Virtual environment (auto-generated)
 ```
 
 ### Key Dependencies
