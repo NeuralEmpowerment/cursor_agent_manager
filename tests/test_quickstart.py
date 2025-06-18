@@ -6,9 +6,15 @@ Demonstrates the workflow described in DEV_QUICKSTART.md
 for adding new events and testing the telemetry system.
 """
 
+import sys
+import os
+import time
+
+# Add parent directory to path to import from project modules
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+
 from container import initialize_telemetry_system
 from telemetry import EventType
-import time
 
 def main():
     print("🚀 Agent Monitor Quickstart Test")

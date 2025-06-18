@@ -6,6 +6,10 @@ Test script for the new telemetry system
 import sys
 import os
 from datetime import datetime
+
+# Add parent directory to path to import from project modules
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+
 from container import TelemetryContainer, initialize_telemetry_system
 from telemetry import EventType
 
