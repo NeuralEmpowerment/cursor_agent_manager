@@ -8,6 +8,9 @@ This project is a **Proof of Concept (POC)** for macOS that demonstrates how to 
 - [Cursor Agent Manager](#cursor-agent-manager)
   - [Table of Contents](#table-of-contents)
   - [Features](#features)
+  - [Screenshots](#screenshots)
+    - [Active State Detection](#active-state-detection)
+    - [Idle State Detection](#idle-state-detection)
   - [Architecture](#architecture)
     - [Component Overview](#component-overview)
     - [Detection Flow](#detection-flow)
@@ -53,6 +56,20 @@ This project is a **Proof of Concept (POC)** for macOS that demonstrates how to 
   - Data visualization: trend charts, heatmaps, distributions.
   - CSV export for external analysis.
   - Automatic data cleanup and maintenance.
+
+## Screenshots
+
+The application provides visual feedback and monitoring capabilities for AI agent states:
+
+### Active State Detection
+<img src="docs/images/example_active-state.png" alt="Active State Example" width="400">
+
+*The control panel showing the AI agent in an active state (🚀) with real-time detection feedback*
+
+### Idle State Detection  
+<img src="docs/images/example_idle-state.png" alt="Idle State Example" width="400">
+
+*The control panel displaying the AI agent in an idle state (💤) with monitoring controls*
 
 ## Architecture
 
