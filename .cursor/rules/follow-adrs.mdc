@@ -1,0 +1,8 @@
+---
+description: Be aware of the ADRs which have been made
+globs: 
+alwaysApply: false
+---
+Be aware of the relevant ADRs in docs/adrs/ 
+
+[index.md](mdc:docs/adrs/index.md)

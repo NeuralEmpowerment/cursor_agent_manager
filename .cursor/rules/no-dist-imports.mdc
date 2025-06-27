@@ -1,0 +1,6 @@
+---
+description: Don't import from dist builds in typescript files
+globs: *.tsx,*.ts,*.js
+alwaysApply: false
+---
+Import from the non-built files.

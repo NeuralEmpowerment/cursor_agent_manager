@@ -151,6 +151,107 @@ get_ocr_text() -> extracted text from current screen
 - Third-party integrations
 - Custom audio/visual alerts
 
+## 📊 Advanced Statistics & Analytics
+
+### Enhanced Metrics Collection
+**Status**: 🔴 **Enhancement Request**
+
+**Problem**: Current statistics are too basic (just idle count, failures, last detection). Need comprehensive metrics for better system understanding and optimization.
+
+**Current Limitations**:
+- Only tracks basic counters (idle detections, failures)
+- No time-series data or trends
+- No state transition analytics
+- No confidence score tracking
+- No performance metrics
+
+**Enhanced Data Collection Requirements**:
+- **State Transition Metrics**: Track all state changes with timestamps
+  - idle→active, active→run_command, run_command→active, etc.
+  - Transition frequency and patterns
+  - State duration tracking (how long in each state)
+- **Confidence Score Analytics**: 
+  - Confidence trends over time for each state
+  - Detection accuracy and reliability metrics
+  - Template matching performance per image
+- **System Performance Metrics**:
+  - Detection latency (time per frame analysis)
+  - Resource usage (CPU, memory during detection)
+  - Frame rate and processing efficiency
+- **Alert & Audio Metrics**:
+  - Alert frequency and effectiveness
+  - Audio playback success/failure rates
+  - User interaction with alerts
+
+### Real-Time Data Visualization
+**Status**: 🔴 **Enhancement Request**
+
+**Problem**: Static text statistics don't provide insights into system behavior over time.
+
+**Visualization Requirements**:
+- **Real-Time State Timeline**: Live graph showing state changes over time
+- **Confidence Score Charts**: Real-time confidence trends for each state type
+- **Detection Frequency Graphs**: Histogram of detections per minute/hour
+- **State Duration Analysis**: Bar charts showing time spent in each state
+- **System Health Dashboard**: CPU, memory, and performance indicators
+
+**Technical Implementation**:
+- Interactive web dashboard using libraries like Chart.js or D3.js
+- Real-time WebSocket updates for live data streaming
+- Configurable time ranges (last hour, day, week)
+- Export charts as images for reports
+
+### Advanced Analytics Engine
+**Status**: 🔴 **Enhancement Request**
+
+**Problem**: No pattern recognition or predictive analytics to optimize system behavior.
+
+**Analytics Features**:
+- **Pattern Recognition**: Identify common state sequences and user workflows
+- **Anomaly Detection**: Flag unusual detection patterns or system behavior
+- **Predictive Analytics**: Forecast likely next states based on current patterns
+- **Performance Optimization**: Identify optimal template matching thresholds
+- **Usage Analytics**: Track peak usage times and system load patterns
+
+### Historical Data & Reporting
+**Status**: 🔴 **Enhancement Request**
+
+**Problem**: No way to analyze historical trends or generate comprehensive reports.
+
+**Requirements**:
+- **Time-Series Database**: Store all metrics with timestamps for historical analysis
+- **Automated Reports**: Daily/weekly summaries of system performance
+- **Data Export**: Enhanced JSON/CSV export with complete time-series data
+- **Comparative Analysis**: Compare performance across different time periods
+- **Trend Analysis**: Identify long-term patterns and system evolution
+
+**Data Schema Example**:
+```json
+{
+  "timestamp": "2024-01-27T11:09:15Z",
+  "event_type": "state_change",
+  "from_state": "active",
+  "to_state": "run_command", 
+  "confidence": 1.00,
+  "detection_latency_ms": 23,
+  "template_used": "run_command_template_20250627_110953.png",
+  "session_id": "session_123"
+}
+```
+
+### Interactive Statistics UI
+**Status**: 🔴 **Enhancement Request**
+
+**Problem**: Current statistics window is static and provides limited interaction.
+
+**UI Enhancement Requirements**:
+- **Interactive Charts**: Click and drag to zoom, hover for details
+- **Configurable Metrics**: User can choose which metrics to display
+- **Real-Time Updates**: Live data streaming without manual refresh
+- **Historical Browser**: Navigate through past data with date/time picker
+- **Export Controls**: One-click export of current view or selected time range
+- **Multi-Monitor Support**: Statistics for each monitored screen separately
+
 ## 🔧 Architecture Issues
 
 ### Debug Window State Management Bug
@@ -198,6 +299,47 @@ idle: 1.00 | active: 0.89 | run_command: 0.45
 - Run command detection currently unreliable
 - State transitions may be missed
 - User experience degraded when agent is waiting for command approval
+
+### OCR Detection Issues
+**Status**: 🚨 **Critical Bug**
+
+**Problem**: Current OCR detector has incorrect text matching logic and invalid state classifications.
+
+**Specific Issues from Code**:
+1. **Invalid Idle State Logic** (`agent_monitor_poc.py:568`):
+   ```python
+   # FIXME: These are not valid for idle states, to remove
+   if "Start a new chat" in text or "Accept" in text:
+       return AgentState.IDLE
+   ```
+   - "Accept" text should indicate `RUN_COMMAND` state, not `IDLE`
+   - "Start a new chat" logic needs validation for proper idle detection
+
+2. **Missing "Generating" State Handling** (`agent_monitor_poc.py:570`):
+   ```python
+   # FIXME: "Generating" is a valid active state
+   return AgentState.ACTIVE
+   ```
+   - No explicit detection for "Generating" text
+   - Should specifically detect and return `ACTIVE` when "Generating" text is found
+
+**Required Fixes**:
+1. **Fix Accept Button Logic**: 
+   - Change `"Accept" in text` to return `AgentState.RUN_COMMAND`
+   - Add proper run command text patterns
+2. **Add Generating Detection**:
+   - Explicitly check for "Generating" text
+   - Return `AgentState.ACTIVE` for generating states
+3. **Improve Text Pattern Matching**:
+   - Add comprehensive text patterns for each state
+   - Implement case-insensitive matching
+   - Add text preprocessing for better OCR accuracy
+
+**Impact**:
+- OCR fallback returns incorrect states
+- "Accept" buttons incorrectly classified as idle
+- "Generating" states not properly detected
+- Reduced overall detection accuracy when template matching fails
 
 ## 🧪 Upcoming Improvements
 - **~~Compact UI Design:~~** ✅ **COMPLETED**

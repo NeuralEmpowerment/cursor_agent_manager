@@ -1,0 +1,11 @@
+---
+description: How to style typescript files
+globs: *.tsx,*.ts
+alwaysApply: false
+---
+
+# Style Guide
+
+1. No default exports
+2. Class name and class files names should be PascalCase
+3. index.ts files should only be used to export from other files. Files which contain logic, like classes, should have a descriptive name. (i.e. PascalClass = PascalClass.ts)

@@ -1,0 +1,10 @@
+---
+description: How to structure, name and organize tests [TS/JS]
+globs: *.tsx,*.ts,*.js
+alwaysApply: false
+---
+## Unit Tests 
+
+1. Name the test with the same name, following .test.<etx>
+2. Generally it's helpful to colocate the tests as much as possible.
+
