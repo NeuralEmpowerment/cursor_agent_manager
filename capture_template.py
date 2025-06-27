@@ -128,33 +128,40 @@ def save_as_template():
 def main():
     print("Template Capture & Analysis Tool")
     print("=" * 40)
+    print("(Press Ctrl+C anytime to exit)")
     
-    while True:
-        print("\nOptions:")
-        print("1. Analyze current state")
-        print("2. Save current screen as template")
-        print("3. Exit")
-        
-        choice = input("\nChoose option (1-3): ").strip()
-        
-        if choice == '1':
-            try:
-                state, confidences, threshold, min_gap = capture_current_state()
-                suggest_action(state, confidences, threshold, min_gap)
-            except Exception as e:
-                print(f"Error: {e}")
+    try:
+        while True:
+            print("\nOptions:")
+            print("1. Analyze current state")
+            print("2. Save current screen as template")
+            print("3. Exit")
+            
+            choice = input("\nChoose option (1-3): ").strip()
+            
+            if choice == '1':
+                try:
+                    state, confidences, threshold, min_gap = capture_current_state()
+                    suggest_action(state, confidences, threshold, min_gap)
+                except Exception as e:
+                    print(f"Error: {e}")
+                    
+            elif choice == '2':
+                try:
+                    save_as_template()
+                except Exception as e:
+                    print(f"Error: {e}")
+                    
+            elif choice == '3':
+                print("Goodbye!")
+                break
+            else:
+                print("Invalid choice!")
                 
-        elif choice == '2':
-            try:
-                save_as_template()
-            except Exception as e:
-                print(f"Error: {e}")
-                
-        elif choice == '3':
-            print("Goodbye!")
-            break
-        else:
-            print("Invalid choice!")
+    except KeyboardInterrupt:
+        print("\n\n👋 Exiting capture tool... Goodbye!")
+    except EOFError:
+        print("\n\n👋 Exiting capture tool... Goodbye!")
 
 if __name__ == "__main__":
     main() 

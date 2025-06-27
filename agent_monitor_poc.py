@@ -34,6 +34,8 @@ import logging
 import AppKit
 import objc
 from Foundation import NSObject, NSMakeRect, NSMakePoint, NSLayoutConstraint
+import signal
+import sys
 ########################################################
 # === Configuration ===
 ########################################################
@@ -48,8 +50,8 @@ TEMPLATE_DIRECTORIES = {
 # Detection parameters
 CONFIDENCE_THRESHOLD = 0.8          # Minimum confidence for valid detection
 MIN_CONFIDENCE_GAP = 0.08          # Lowered from 0.12 to handle closer matches
-REQUIRED_CONFIRMATIONS = 1         # Reduced from 2 for faster response
-MIN_STATE_CHANGE_INTERVAL = 3      # Minimum seconds between state changes
+REQUIRED_CONFIRMATIONS = 2         # Require 2 consistent detections for stability
+MIN_STATE_CHANGE_INTERVAL = 5      # Minimum seconds between state changes (increased for stability)
 
 # Legacy support - you can switch back to simple detector by setting this to True
 USE_LEGACY_DETECTOR = False
@@ -92,14 +94,17 @@ STATE_TEMPLATE_MAPPING = {
 AUDIO_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "audio", "alerts")
 ALERT_SOUNDS = {
     "idle": "alert_idle_simple.wav",  # New simple two-note sound
+    "run_command": "alert_ascending.wav",  # Urgent ascending tone for commands ready to run
     "error": "alert_error.wav",
     "success": "alert_success.wav",
     "thinking": "alert_thinking.wav",
-    "completed": "alert_completed.wav"
+    "completed": "alert_completed.wav",
+    "warning": "alert_warning.wav"  # More urgent alternative for run_command
 }
 
-# Idle alert repeat settings
+# Alert repeat settings
 IDLE_ALERT_REPEAT_INTERVAL = 60  # Repeat idle alert every 60 seconds
+RUN_COMMAND_ALERT_REPEAT_INTERVAL = 60  # Repeat run_command alert every 60 seconds
 
 # === Enhanced Telemetry with DI ===
 from container import initialize_telemetry_system
@@ -371,6 +376,12 @@ class EnhancedTemplateMatchDetector:
         if DIAGNOSTIC_MODE and DIAGNOSTIC_VERBOSITY == "high" and best_confidence > 0.5:
             template_info = best_template_name if best_template_name else "no template"
             print(f"[DIAGNOSTIC] Best {state_name} match: {best_confidence:.2f} ({template_info})")
+            
+            # EXTRA DEBUG: Warn about suspicious high confidence mismatches
+            if best_confidence >= 0.99 and state_name == "idle":
+                print(f"[⚠️  WARNING] Idle template '{template_info}' has suspiciously high confidence ({best_confidence:.2f})!")
+                print(f"[⚠️  WARNING] This template might be too generic and matching active states!")
+                print(f"[⚠️  WARNING] Consider removing or replacing this template.")
         
         return best_confidence, best_rect, best_template_name
 
@@ -450,26 +461,68 @@ class EnhancedTemplateMatchDetector:
                 self.last_confidence = result['confidence']
                 self._last_match_rect = result['rect']
             else:
-                # Multiple states valid - check confidence gaps
+                # Multiple states valid - APPLY PRIORITY LOGIC FIRST
                 sorted_states = sorted(valid_states.items(), key=lambda x: x[1]['confidence'], reverse=True)
-                best_state, best_result = sorted_states[0]
-                second_state, second_result = sorted_states[1]
                 
-                confidence_gap = best_result['confidence'] - second_result['confidence']
+                # SMART PRIORITY LOGIC: Prioritize run_command when multiple states detected
+                detected_state = AgentState.UNKNOWN
+                chosen_result = None
                 
-                if confidence_gap >= self.min_confidence_gap:
-                    # Clear winner
-                    detected_state = best_state
-                    self.last_confidence = best_result['confidence']
-                    self._last_match_rect = best_result['rect']
+                # Priority 1: Run command (if confidence > 0.4) - needs immediate user action
+                if (AgentState.RUN_COMMAND in valid_states and 
+                    valid_states[AgentState.RUN_COMMAND]['confidence'] > 0.4):
+                    detected_state = AgentState.RUN_COMMAND
+                    chosen_result = valid_states[AgentState.RUN_COMMAND]
+                    
+                # Priority 2: Active state (if confidence >= threshold and no run command chosen)
+                elif (AgentState.ACTIVE in valid_states and 
+                      valid_states[AgentState.ACTIVE]['confidence'] >= self.confidence_threshold):
+                    detected_state = AgentState.ACTIVE
+                    chosen_result = valid_states[AgentState.ACTIVE]
+                    
+                # Priority 3: Idle state (if confidence >= threshold)
+                elif (AgentState.IDLE in valid_states and 
+                      valid_states[AgentState.IDLE]['confidence'] >= self.confidence_threshold):
+                    detected_state = AgentState.IDLE
+                    chosen_result = valid_states[AgentState.IDLE]
                 else:
-                    # Too close - stay unknown to avoid flickering
-                    detected_state = AgentState.UNKNOWN
+                    # Fall back to highest confidence
+                    best_state, best_result = sorted_states[0]
+                    second_state, second_result = sorted_states[1]
+                    
+                    confidence_gap = best_result['confidence'] - second_result['confidence']
+                    
+                    if confidence_gap >= self.min_confidence_gap:
+                        # Clear winner
+                        detected_state = best_state
+                        chosen_result = best_result
+                    else:
+                        # Too close - stay unknown to avoid flickering
+                        detected_state = AgentState.UNKNOWN
+                        if DIAGNOSTIC_MODE and DIAGNOSTIC_VERBOSITY == "high":
+                            print(f"[DIAGNOSTIC] Confidence gap too small ({confidence_gap:.2f}) between {best_state} and {second_state}")
+                
+                # Set results if we chose a state
+                if chosen_result:
+                    self.last_confidence = chosen_result['confidence']
+                    self._last_match_rect = chosen_result['rect']
+                    
                     if DIAGNOSTIC_MODE and DIAGNOSTIC_VERBOSITY == "high":
-                        print(f"[DIAGNOSTIC] Confidence gap too small ({confidence_gap:.2f}) between {best_state} and {second_state}")
+                        if detected_state == AgentState.RUN_COMMAND:
+                            active_conf = valid_states.get(AgentState.ACTIVE, {}).get('confidence', 0.0)
+                            print(f"[DIAGNOSTIC] RUN_COMMAND prioritized over other states (run:{chosen_result['confidence']:.2f} vs active:{active_conf:.2f})")
+                        else:
+                            print(f"[DIAGNOSTIC] Selected {detected_state} with confidence {chosen_result['confidence']:.2f}")
             
             # Apply state stability check
             stable_state = self._get_stable_state(detected_state)
+            
+            # EXTRA DEBUG: Log state decision process
+            if DIAGNOSTIC_MODE and DIAGNOSTIC_VERBOSITY == "high":
+                if detected_state != AgentState.UNKNOWN:
+                    print(f"[STATE_LOGIC] Raw Detection: {detected_state} | Stable State: {stable_state}")
+                    if stable_state != detected_state:
+                        print(f"[STATE_LOGIC] Waiting for more confirmations ({len(self._detection_history)}/{self._required_confirmations})")
             
             # Enhanced diagnostic output with better formatting
             if DIAGNOSTIC_MODE and diagnostic_output.should_output():
@@ -591,6 +644,9 @@ class AgentMonitor:
         # Idle alert repeat functionality
         self.idle_start_time = None  # When idle state started
         self.last_idle_alert_time = 0  # Last time we played idle alert
+        # Run command alert repeat functionality
+        self.run_command_start_time = None  # When run_command state started
+        self.last_run_command_alert_time = 0  # Last time we played run_command alert
 
     def _should_notify_state_change(self, new_state):
         """Determine if we should notify about a state change to prevent spam."""
@@ -631,10 +687,40 @@ class AgentMonitor:
             idle_duration = int(current_time - self.idle_start_time)
             Notifier.notify(f"Still idle after {idle_duration // 60}:{idle_duration % 60:02d}", title="Agent Watcher")
 
+    def _check_run_command_repeat_alert(self):
+        """Check if we should play a repeating run_command alert."""
+        current_time = time.time()
+        
+        # Only check if we're in run_command state and not muted
+        if self.state != AgentState.RUN_COMMAND or self.muted or self.paused:
+            return
+            
+        # If we just entered run_command state, set the start time
+        if self.run_command_start_time is None:
+            self.run_command_start_time = current_time
+            self.last_run_command_alert_time = current_time  # Count initial alert
+            return
+            
+        # Check if enough time has passed since last alert
+        time_since_last_alert = current_time - self.last_run_command_alert_time
+        if time_since_last_alert >= RUN_COMMAND_ALERT_REPEAT_INTERVAL:
+            # Play the run_command alert again
+            self.sound_player.play_sound("run_command")
+            self.last_run_command_alert_time = current_time
+            
+            # Show notification for repeat alerts
+            command_duration = int(current_time - self.run_command_start_time)
+            Notifier.notify(f"🚨 COMMAND STILL WAITING - {command_duration // 60}:{command_duration % 60:02d} elapsed", title="Agent Monitor - URGENT")
+
     def _reset_idle_tracking(self):
         """Reset idle state tracking when leaving idle."""
         self.idle_start_time = None
         self.last_idle_alert_time = 0
+
+    def _reset_run_command_tracking(self):
+        """Reset run_command state tracking when leaving run_command."""
+        self.run_command_start_time = None
+        self.last_run_command_alert_time = 0
 
     def scan_and_act(self):
         if not self.running or self.paused:
@@ -646,97 +732,137 @@ class AgentMonitor:
         
         detection_successful = False
 
-        for detector in self.detectors:
-            state = detector.detect_state()
-            
-            # Update confidence if available
-            if hasattr(detector, 'last_confidence'):
-                self.last_confidence = detector.last_confidence
-            
-            # Store detection rectangle if available (fix variable name mismatch)
-            if hasattr(detector, '_last_match_rect'):
-                self.last_detection_rect = detector._last_match_rect
-            elif hasattr(detector, 'last_match_rect'):
-                self.last_detection_rect = detector.last_match_rect
-            
-            # Always update current_state to reflect what we're detecting
-            self.current_state = state
-            
-            if state in [AgentState.IDLE, AgentState.RUN_COMMAND]:
-                # Handle both idle and run_command states (both indicate waiting for user action)
-                target_state = state  # Keep the specific state
+        # Use the enhanced detector (priority logic now handled in detector)
+        detected_state = self.detectors[0].detect_state()  # Primary detector with priority logic
+        confidence = getattr(self.detectors[0], 'last_confidence', 0.0)
+        
+        # Update monitor state
+        state = detected_state
+        self.current_state = state
+        self.last_confidence = confidence
+        
+        # Update detection rectangle from detector
+        if hasattr(self.detectors[0], '_last_match_rect'):
+            self.last_detection_rect = self.detectors[0]._last_match_rect
+        
+        best_detector = self.detectors[0]
+        
+        # DEBUG: Log detection decision
+        if DIAGNOSTIC_MODE and DIAGNOSTIC_VERBOSITY == "high":
+            if state != AgentState.UNKNOWN:
+                print(f"[DETECTOR_WINNER] {best_detector.__class__.__name__} detected {state} (conf: {confidence:.3f})")
+            else:
+                print(f"[DETECTOR_WINNER] No detector met thresholds")
+        
+        # === STATE HANDLING LOGIC (MOVED OUTSIDE DIAGNOSTIC BLOCK) ===
+        if state == AgentState.IDLE:
+            # Handle idle state (agent waiting for input)
+            if self.state != AgentState.IDLE:
+                # Reset tracking if coming from a different state
+                self._reset_idle_tracking()
+                if self.state == AgentState.RUN_COMMAND:
+                    self._reset_run_command_tracking()
                 
-                # Only update main state and notify if this is a meaningful state change
-                if self.state != target_state:
-                    # Reset idle tracking if coming from a different state
-                    if self.state != AgentState.IDLE:
-                        self._reset_idle_tracking()
+                self.state = AgentState.IDLE
+                
+                # Record detection with enhanced telemetry
+                self.telemetry.record_detection(
+                    confidence=self.last_confidence,
+                    detection_method=best_detector.__class__.__name__,
+                    match_rect=self.last_detection_rect
+                )
+                
+                # Only notify if it's appropriate (not spam)
+                if self._should_notify_state_change(AgentState.IDLE):
+                    self.last_stable_state = AgentState.IDLE
+                    self.last_notification_time = time.time()
                     
-                    self.state = target_state
-                    
-                    # Record detection with enhanced telemetry
-                    self.telemetry.record_detection(
-                        confidence=self.last_confidence,
-                        detection_method=detector.__class__.__name__,
-                        match_rect=self.last_detection_rect
-                    )
-                    
-                    # Only notify if it's appropriate (not spam)
-                    if self._should_notify_state_change(target_state):
-                        self.last_stable_state = target_state
-                        self.last_notification_time = time.time()
+                    Notifier.notify("Agent idle – input may be needed", title="Agent Watcher")
                         
-                        if target_state == AgentState.IDLE:
-                            Notifier.notify("Agent idle – input may be needed", title="Agent Watcher")
-                        elif target_state == AgentState.RUN_COMMAND:
-                            Notifier.notify("Run command ready – click to execute", title="Agent Watcher")
-                            
-                        if not self.muted:
-                            self.sound_player.play_sound("idle")
+                    if not self.muted:
+                        self.sound_player.play_sound("idle")
+                    
+                    if AUTO_CLICK_ENABLED:
+                        pyautogui.press("enter")
+                    if self.executor:
+                        cmd = self.executor.process_next()
+                        if cmd:
+                            self.telemetry.log_event(f"Executed command: {cmd}")
+            
+            # Check for repeating idle alerts
+            self._check_idle_repeat_alert()
+            detection_successful = True
+            return
+            
+        elif state == AgentState.RUN_COMMAND:
+            # Handle run command state (waiting for user to accept/execute)
+            if self.state != AgentState.RUN_COMMAND:
+                # Reset run_command tracking if coming from a different state
+                self._reset_run_command_tracking()
+                
+                self.state = AgentState.RUN_COMMAND
+                
+                # Record detection with enhanced telemetry
+                self.telemetry.record_detection(
+                    confidence=self.last_confidence,
+                    detection_method=best_detector.__class__.__name__,
+                    match_rect=self.last_detection_rect
+                )
+                
+                # Only notify if it's appropriate (not spam)
+                if self._should_notify_state_change(AgentState.RUN_COMMAND):
+                    self.last_stable_state = AgentState.RUN_COMMAND
+                    self.last_notification_time = time.time()
+                    
+                    # SPECIAL NOTIFICATION for run commands
+                    Notifier.notify("🚨 COMMAND READY - Click Accept/Run to continue!", title="Agent Monitor - Action Required")
                         
-                        if AUTO_CLICK_ENABLED:
-                            pyautogui.press("enter")
-                        if self.executor:
-                            cmd = self.executor.process_next()
-                            if cmd:
-                                self.telemetry.log_event(f"Executed command: {cmd}")
-                
-                # Check for repeating idle alerts
-                self._check_idle_repeat_alert()
+                    if not self.muted:
+                        # Use the dedicated run_command sound (ascending tone)
+                        self.sound_player.play_sound("run_command")
                     
-                detection_successful = True
-                return
+                    # Optional: Auto-click if enabled
+                    if AUTO_CLICK_ENABLED:
+                        # Could add logic to auto-click the accept button
+                        pyautogui.press("enter")
+            
+            # Check for repeating run_command alerts (like idle)
+            self._check_run_command_repeat_alert()
+            detection_successful = True
+            return
+            
+        elif state == AgentState.ACTIVE:
+            # Reset tracking when becoming active
+            if self.state == AgentState.IDLE:
+                self._reset_idle_tracking()
+            elif self.state == AgentState.RUN_COMMAND:
+                self._reset_run_command_tracking()
+            
+            # Only update main state and notify if this is a meaningful state change
+            if self.state != AgentState.ACTIVE:
+                self.state = AgentState.ACTIVE
                 
-            elif state == AgentState.ACTIVE:
-                # Reset idle tracking when becoming active
-                if self.state == AgentState.IDLE:
-                    self._reset_idle_tracking()
+                # Record active detection with enhanced telemetry
+                self.telemetry.record_active_detection(
+                    confidence=self.last_confidence,
+                    detection_method=best_detector.__class__.__name__,
+                    match_rect=self.last_detection_rect
+                )
                 
-                # Only update main state and notify if this is a meaningful state change
-                if self.state != AgentState.ACTIVE:
-                    self.state = AgentState.ACTIVE
+                # Only notify if it's appropriate (not spam)
+                if self._should_notify_state_change(AgentState.ACTIVE):
+                    self.last_stable_state = AgentState.ACTIVE
+                    self.last_notification_time = time.time()
                     
-                    # Record active detection with enhanced telemetry
-                    self.telemetry.record_active_detection(
-                        confidence=self.last_confidence,
-                        detection_method=detector.__class__.__name__,
-                        match_rect=self.last_detection_rect
-                    )
-                    
-                    # Only notify if it's appropriate (not spam)
-                    if self._should_notify_state_change(AgentState.ACTIVE):
-                        self.last_stable_state = AgentState.ACTIVE
-                        self.last_notification_time = time.time()
-                        
-                        # Optional: Add sound for active state (currently no sound for active)
-                        # if not self.muted:
-                        #     self.sound_player.play_sound("thinking")
-                    
-                detection_successful = True
+                    # Optional: Add sound for active state (currently no sound for active)
+                    # if not self.muted:
+                    #     self.sound_player.play_sound("thinking")
                 
-            elif state == AgentState.UNKNOWN:
-                # Don't change main state for unknown - but still update current detection for UI
-                pass
+            detection_successful = True
+            
+        elif state == AgentState.UNKNOWN:
+            # Don't change main state for unknown - but still update current detection for UI
+            pass
 
         # Only record failure if we couldn't detect any state at all
         if not detection_successful and self.current_state == AgentState.UNKNOWN:
@@ -970,6 +1096,8 @@ class ControlPanel(NSObject):
             state_with_emoji = "💤 idle"
         elif state == "active":
             state_with_emoji = "🚀 active"
+        elif state == "run_command":
+            state_with_emoji = "⚡ run_command"
         else:
             state_with_emoji = "❓ Unknown"
             
@@ -1256,54 +1384,76 @@ class AgentWatcherService:
         print("[INFO] Starting AgentWatcherService...")
         self.thread.start()
 
+def signal_handler(signum, frame):
+    """Handle Ctrl+C gracefully."""
+    print("\n👋 Received interrupt signal. Shutting down Agent Monitor...")
+    AppKit.NSApp().terminate_(None)
+
 def main():
-    # Initialize NSApplication
-    app = AppKit.NSApplication.sharedApplication()
-    app.setActivationPolicy_(AppKit.NSApplicationActivationPolicyRegular)
+    # Set up signal handler for Ctrl+C
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
     
-    # Initialize telemetry with dependency injection
-    container = initialize_telemetry_system()
-    telemetry_service = container.telemetry_service()
+    print("🚀 Starting Cursor Agent Monitor...")
+    print("   Press Ctrl+C to exit anytime")
+    print("   Or use Cmd+Q to quit from the app menu")
+    print("")
     
-    # Initialize components
-    telemetry = LegacyTelemetryAdapter(telemetry_service)
-    executor = CommandExecutor() if COMMAND_QUEUE_ENABLED else None
+    try:
+        # Initialize NSApplication
+        app = AppKit.NSApplication.sharedApplication()
+        app.setActivationPolicy_(AppKit.NSApplicationActivationPolicyRegular)
+        
+        # Initialize telemetry with dependency injection
+        container = initialize_telemetry_system()
+        telemetry_service = container.telemetry_service()
+        
+        # Initialize components
+        telemetry = LegacyTelemetryAdapter(telemetry_service)
+        executor = CommandExecutor() if COMMAND_QUEUE_ENABLED else None
 
-    # Load templates from organized directories
-    state_templates = load_templates_from_directories(TEMPLATE_DIRECTORIES, STATE_TEMPLATE_MAPPING)
-    
-    if not state_templates.get(AgentState.IDLE) or not state_templates.get(AgentState.ACTIVE):
-        print("[ERROR] No templates found for required states! Please add template images to agent_idle/ and agent_active/ directories.")
-        return
-    
-    # Create detectors
-    if USE_LEGACY_DETECTOR:
-        # Fallback to legacy single-template detector (use first template from each category)
-        detectors = [TemplateMatchDetector(
-            state_templates[AgentState.IDLE][0], 
-            state_templates[AgentState.ACTIVE][0]
-        )]
-    else:
-        # Use enhanced multi-template detector with all loaded templates
-        detectors = [EnhancedTemplateMatchDetector(
-            state_templates,
-            confidence_threshold=CONFIDENCE_THRESHOLD,
-            min_confidence_gap=MIN_CONFIDENCE_GAP
-        )]
-    
-    if OCR_ENABLED:
-        detectors.append(OCRDetector())
+        # Load templates from organized directories
+        state_templates = load_templates_from_directories(TEMPLATE_DIRECTORIES, STATE_TEMPLATE_MAPPING)
+        
+        if not state_templates.get(AgentState.IDLE) or not state_templates.get(AgentState.ACTIVE):
+            print("[ERROR] No templates found for required states! Please add template images to agent_idle/ and agent_active/ directories.")
+            return
+        
+        # Create detectors
+        if USE_LEGACY_DETECTOR:
+            # Fallback to legacy single-template detector (use first template from each category)
+            detectors = [TemplateMatchDetector(
+                state_templates[AgentState.IDLE][0], 
+                state_templates[AgentState.ACTIVE][0]
+            )]
+        else:
+            # Use enhanced multi-template detector with all loaded templates
+            detectors = [EnhancedTemplateMatchDetector(
+                state_templates,
+                confidence_threshold=CONFIDENCE_THRESHOLD,
+                min_confidence_gap=MIN_CONFIDENCE_GAP
+            )]
+        
+        if OCR_ENABLED:
+            detectors.append(OCRDetector())
 
-    # Create and start the monitor
-    monitor = AgentMonitor(detectors, telemetry, executor)
-    service = AgentWatcherService(monitor)
-    service.start()
+        # Create and start the monitor
+        monitor = AgentMonitor(detectors, telemetry, executor)
+        service = AgentWatcherService(monitor)
+        service.start()
 
-    # Start the control panel
-    panel = ControlPanel.alloc().initWithMonitor_(monitor)
-    
-    # Run the application
-    AppKit.NSApp().run()
+        # Start the control panel
+        panel = ControlPanel.alloc().initWithMonitor_(monitor)
+        
+        # Run the application
+        AppKit.NSApp().run()
+        
+    except KeyboardInterrupt:
+        print("\n👋 Keyboard interrupt received. Shutting down...")
+    except Exception as e:
+        print(f"\n❌ Error starting application: {e}")
+    finally:
+        print("✅ Agent Monitor stopped.")
 
 if __name__ == "__main__":
     main()
