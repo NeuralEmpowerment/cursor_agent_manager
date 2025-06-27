@@ -1,77 +1,221 @@
-# Cursor Agent Manager
+# Cursor Agent Monitor
 
-This project is a **Proof of Concept (POC)** for macOS that demonstrates how to build a screen monitoring utility. Its primary goal is to show how one can monitor a specific region of the screen to track the state of an AI assistant, such as the one in the Cursor IDE.
+A **production-ready** macOS application that intelligently monitors Cursor IDE's AI agent states with smart priority detection, distinct alert sounds, and automated notifications. Never miss when your AI agent needs attention or when commands are ready to execute!
 
-**This is not a production-ready application.** Instead, it serves as a technical example, complete with a modern UI featuring emoji status indicators, professional asset organization, state management, and multi-modal detection strategies (template matching, OCR). It's a good starting point for anyone looking to build tools that interact with GUIs on macOS.
+**🎉 Version 1.0.0** - Now with intelligent **RUN_COMMAND** detection, recurring alerts, and rock-solid state management.
 
 ## Table of Contents
-- [Cursor Agent Manager](#cursor-agent-manager)
+- [Cursor Agent Monitor](#cursor-agent-monitor)
   - [Table of Contents](#table-of-contents)
-  - [Features](#features)
-  - [Screenshots](#screenshots)
+  - [✨ What's New in v1.0.0](#-whats-new-in-v100)
+  - [🚀 Quick Start](#-quick-start)
+  - [🎯 Key Features](#-key-features)
+  - [📱 Screenshots](#-screenshots)
     - [Active State Detection](#active-state-detection)
     - [Idle State Detection](#idle-state-detection)
-  - [Architecture](#architecture)
+    - [Run Command State Detection](#run-command-state-detection)
+  - [🧠 Smart Detection System](#-smart-detection-system)
+    - [Priority Logic](#priority-logic)
+    - [State Definitions](#state-definitions)
+  - [🔊 Alert System](#-alert-system)
+  - [🛠️ Template Management](#️-template-management)
+    - [Quick Template Updates](#quick-template-updates)
+    - [Template Organization](#template-organization)
+  - [⚙️ Configuration](#️-configuration)
+  - [🏗️ Architecture](#️-architecture)
     - [Component Overview](#component-overview)
     - [Detection Flow](#detection-flow)
-  - [Installation](#installation)
-  - [Usage](#usage)
-    - [Project Structure](#project-structure)
-    - [Key Dependencies](#key-dependencies)
-  - [Configuration](#configuration)
-    - [Template Images](#template-images)
-    - [Sound Alerts](#sound-alerts)
-  - [Development](#development)
-    - [Workflow](#workflow)
-    - [Roadmap](#roadmap)
-    - [Developer Notes \& Gotchas](#developer-notes--gotchas)
-  - [Telemetry \& Analytics](#telemetry--analytics)
-    - [Database Storage](#database-storage)
-    - [Analytics CLI](#analytics-cli)
-    - [Data Visualization](#data-visualization)
-    - [Enhanced Recording](#enhanced-recording)
+  - [📊 Telemetry \& Analytics](#-telemetry--analytics)
+  - [🔧 Development](#-development)
+  - [🎵 Sound Customization](#-sound-customization)
+  - [📋 Troubleshooting](#-troubleshooting)
+  - [🗺️ Roadmap](#️-roadmap)
 
-## Features
+## ✨ What's New in v1.0.0
 
-- **Visual Detection**: Uses OpenCV template matching to detect AI agent states with confidence scoring.
-- **Multi-Modal Alerts**: 
-  - Desktop notifications.
-  - Customizable sound alerts.
-  - Visual indicators in the control panel.
-- **Flexible Control**:
-  - Modern floating control panel with emoji status indicators (💤 idle, 🚀 active, ❓ unknown).
-  - Enhanced UI formatting with improved spacing and typography.
-  - Mute/unmute sound alerts.
-  - Pause/resume monitoring.
-  - Debug view for real-time detection visualization.
-- **Advanced Architecture**:
-  - Pluggable detection engine (Strategy Pattern).
-  - State machine for agent interaction.
-  - SQLite database with dependency injection for telemetry.
-  - Comprehensive analytics and data visualization.
-  - Diagnostic mode for troubleshooting detection confidence.
-- **Analytics & Reporting**:
-  - SQLite database storage with structured event logging.
-  - Command-line analytics tool with multiple report types.
-  - Data visualization: trend charts, heatmaps, distributions.
-  - CSV export for external analysis.
-  - Automatic data cleanup and maintenance.
+- **🎯 Smart Priority Logic**: RUN_COMMAND state automatically takes priority over ACTIVE when both are detected
+- **⚡ Run Command Detection**: Never miss when Accept/Run buttons appear - get immediate notifications
+- **🔔 Recurring Alerts**: Both idle and run_command states alert every 60 seconds with elapsed time
+- **🎵 Distinct Sounds**: Different alert tones for each state (ascending for run_command, simple for idle)
+- **🛡️ Rock-Solid Stability**: Fixed state switching issues, no more unknown/active flickering
+- **🛠️ Easy Template Management**: New capture tool for quick template updates
+- **⚠️ Smart Validation**: Automatic detection of problematic templates with helpful warnings
+- **🚪 Graceful Shutdown**: Proper Ctrl+C handling for clean exits
 
-## Screenshots
+## 🚀 Quick Start
 
-The application provides visual feedback and monitoring capabilities for AI agent states:
+Get up and running in under 2 minutes:
+
+```bash
+# 1. Clone and setup
+git clone <repository-url>
+cd agent_monitor_poc
+./setup.sh
+
+# 2. Start monitoring
+./run.sh
+```
+
+**That's it!** A floating control panel will appear. The monitor will automatically detect:
+- 💤 **Idle states** - when your AI agent needs input
+- 🚀 **Active states** - when your AI agent is generating responses  
+- ⚡ **Run command states** - when Accept/Run buttons appear (PRIORITY!)
+
+### First Time Setup Tips
+1. **Position Cursor IDE** where the monitor can see the AI panel
+2. **Test detection** by triggering different states in Cursor
+3. **Adjust templates** if needed using `./run_capture_tool.sh`
+4. **Customize sounds** by replacing files in `assets/audio/alerts/`
+
+## 🎯 Key Features
+
+### 🧠 Intelligent State Detection
+- **Template Matching**: High-precision OpenCV detection with confidence scoring
+- **Smart Priority System**: RUN_COMMAND > ACTIVE > IDLE automatic prioritization
+- **OCR Fallback**: Text recognition when template matching isn't sufficient
+- **State Stability**: Requires 2 consistent detections to prevent flickering
+
+### 🔔 Never Miss Anything
+- **Instant Notifications**: macOS notifications for all state changes
+- **Recurring Alerts**: Repeat notifications every 60 seconds for idle and run_command states
+- **Distinct Alert Sounds**: 
+  - 🎵 Ascending tone for urgent run_command alerts
+  - 🎵 Simple two-note for idle alerts
+  - 🎵 No sound for active states (avoid interruption)
+- **Visual Status**: Floating control panel with emoji indicators
+
+### 🛠️ Developer-Friendly
+- **Easy Template Updates**: `./run_capture_tool.sh` for quick template capture
+- **Comprehensive Analytics**: SQLite database with detailed telemetry
+- **Debug Mode**: Real-time detection visualization and confidence logging
+- **Automated Versioning**: Semantic versioning with automated release scripts
+
+### 🏗️ Professional Architecture
+- **Modular Design**: Pluggable detection strategies with clean interfaces
+- **Dependency Injection**: Modern IoC container for service management
+- **State Machine**: Intelligent agent interaction flow management
+- **Error Handling**: Robust exception management and graceful degradation
+
+## 📱 Screenshots
 
 ### Active State Detection
 <img src="docs/images/example_active-state.png" alt="Active State Example" width="400">
 
-*The control panel showing the AI agent in an active state (🚀) with real-time detection feedback*
+*AI agent actively generating responses (🚀)*
 
 ### Idle State Detection  
 <img src="docs/images/example_idle-state.png" alt="Idle State Example" width="400">
 
-*The control panel displaying the AI agent in an idle state (💤) with monitoring controls*
+*AI agent waiting for user input (💤)*
 
-## Architecture
+### Run Command State Detection
+*🚨 **NEW!** High-priority state when Accept/Run buttons appear (⚡)*
+
+## 🧠 Smart Detection System
+
+### Priority Logic
+The monitor uses intelligent priority ranking to handle overlapping states:
+
+1. **⚡ RUN_COMMAND** (Priority 1) - Immediate user action required
+   - Accept/Run buttons visible
+   - Triggers urgent ascending alert
+   - Repeats every 60 seconds: *"🚨 COMMAND STILL WAITING - 2:15 elapsed"*
+
+2. **🚀 ACTIVE** (Priority 2) - AI generating responses  
+   - Agent processing/thinking
+   - No sound (avoids interruption)
+   - Shows confidence and status
+
+3. **💤 IDLE** (Priority 3) - Waiting for user input
+   - Agent ready for new requests
+   - Simple two-note alert
+   - Repeats every 60 seconds: *"Still idle after 1:30"*
+
+### State Definitions
+- **IDLE**: Agent is waiting for user input or commands
+- **ACTIVE**: Agent is processing, generating, or executing tasks
+- **RUN_COMMAND**: Accept/Run buttons are visible - requires immediate user action
+- **UNKNOWN**: Detection confidence too low or conflicting signals
+
+## 🔊 Alert System
+
+### Sound Files
+- `alert_ascending.wav` - **RUN_COMMAND** (urgent, attention-grabbing)
+- `alert_idle_simple.wav` - **IDLE** (gentle, non-intrusive)
+- `alert_warning.wav` - **Alternative** for run_command alerts
+- `alert_error.wav`, `alert_success.wav`, etc. - **System events**
+
+### Notification Types
+- **Initial alerts**: Triggered on state changes
+- **Recurring alerts**: Every 60 seconds for idle and run_command
+- **System notifications**: macOS notification center integration
+- **Visual feedback**: Control panel status updates
+
+## 🛠️ Template Management
+
+### Quick Template Updates
+
+When detection accuracy needs improvement:
+
+```bash
+# 1. Launch the template capture tool
+./run_capture_tool.sh
+
+# 2. Navigate to the state you want to capture in Cursor
+# 3. Position your mouse over the UI element
+# 4. Press SPACE to capture
+# 5. Follow the prompts to save the template
+
+# 6. Restart the monitor to use new templates
+./run.sh
+```
+
+### Template Organization
+```
+assets/ui-cursor/
+├── agent_active/           # Active/generating state templates
+│   ├── active_template_20250627_101104.png
+│   ├── active_template_20250627_101308.png
+│   └── generating_button.png
+├── agent_idle/            # Idle state templates  
+│   ├── idle_template_20250618_121216.png
+│   ├── idle_template_20250618_123700.png
+│   └── idle_template_20250627_101801.png
+└── run_command/           # Accept/Run button templates
+    ├── run_command_template_20250627_103259.png
+    └── run_command_template_20250627_110953.png
+```
+
+### Template Best Practices
+- **Clear UI elements**: Capture distinctive parts of buttons/indicators
+- **Consistent sizing**: Keep templates reasonably small (50-150px)
+- **Multiple variants**: Capture different UI states for better coverage
+- **Test thoroughly**: Verify new templates work across different scenarios
+
+## ⚙️ Configuration
+
+### Template Detection Settings
+```python
+# In agent_monitor_poc.py
+CONFIDENCE_THRESHOLD = 0.8      # Minimum match confidence
+MIN_CONFIDENCE_GAP = 0.1        # Gap between competing detections
+REQUIRED_CONFIRMATIONS = 2      # Stable state confirmations needed
+```
+
+### Alert Timing
+```python
+IDLE_ALERT_REPEAT_INTERVAL = 60           # Idle alert frequency (seconds)
+RUN_COMMAND_ALERT_REPEAT_INTERVAL = 60    # Run command alert frequency
+```
+
+### Diagnostic Mode
+```python
+DIAGNOSTIC_MODE = True          # Enable detailed logging
+DIAGNOSTIC_VERBOSITY = "high"   # "low", "medium", "high"
+CLEAR_CONSOLE_ON_UPDATE = False # Clear console on state changes
+```
+
+## 🏗️ Architecture
 
 ### Component Overview
 
@@ -79,84 +223,34 @@ The application provides visual feedback and monitoring capabilities for AI agen
 classDiagram
     class AgentMonitor {
         -detectors: list
-        -telemetry: LegacyTelemetryAdapter
-        -executor: CommandExecutor
+        -telemetry: TelemetryAdapter
+        -sound_player: SoundPlayer
         -state: AgentState
         +scan_and_act()
         +toggle_running()
         +toggle_muted()
     }
-    class StateDetector {
-        <<interface>>
+    class EnhancedTemplateMatchDetector {
+        -state_templates: dict
+        -confidence_threshold: float
+        -priority_logic: function
         +detect_state()
-    }
-    class TemplateMatchDetector {
-        -idle_template: str
-        -generating_template: str
-        +detect_state()
-    }
-    class OCRDetector {
-        +detect_state()
-    }
-    class LegacyTelemetryAdapter {
-        -telemetry_service: TelemetryService
-        +record_detection()
-        +record_failure()
-        +log_event()
-    }
-    class TelemetryService {
-        -repository: TelemetryRepository
-        +record_detection(EventType, ...)
-        +record_event(EventType, ...)
-        +get_recent_stats()
-    }
-    class SQLiteTelemetryRepository {
-        -db_path: str
-        +log_event()
-        +get_events()
-        +get_session_stats()
-        +cleanup_old_data()
-    }
-    class AnalyticsService {
-        -repository: TelemetryRepository
-        +generate_daily_report()
-        +get_detection_accuracy_trends()
-        +create_visualization()
-        +export_data_csv()
-    }
-    class TelemetryContainer {
-        +telemetry_service()
-        +analytics_service()
-        +telemetry_repository()
-    }
-    class CommandExecutor {
-        -queue: Queue
-        +add_command()
-        +process_next()
+        +_match_templates()
+        +_get_stable_state()
     }
     class SoundPlayer {
         -_cache: dict
         -_current_play: WaveObject
-        +play_sound()
+        +play_sound(type)
     }
     class ControlPanel {
         -monitor: AgentMonitor
         -window: NSWindow
         +toggle_monitor()
-        +toggle_mute()
+        +show_debug_view()
     }
     
-    AgentMonitor --> StateDetector
-    StateDetector <|.. TemplateMatchDetector
-    StateDetector <|.. OCRDetector
-    AgentMonitor --> LegacyTelemetryAdapter
-    LegacyTelemetryAdapter --> TelemetryService
-    TelemetryService --> SQLiteTelemetryRepository
-    AnalyticsService --> SQLiteTelemetryRepository
-    TelemetryContainer --> TelemetryService
-    TelemetryContainer --> AnalyticsService
-    TelemetryContainer --> SQLiteTelemetryRepository
-    AgentMonitor --> CommandExecutor
+    AgentMonitor --> EnhancedTemplateMatchDetector
     AgentMonitor --> SoundPlayer
     ControlPanel --> AgentMonitor
 ```
@@ -166,263 +260,175 @@ classDiagram
 ```mermaid
 flowchart TD
     A[Screen Capture] --> B[Template Matching]
-    B --> C{Match Found?}
-    C -->|Yes| D[Determine State]
-    C -->|No| E[OCR Fallback]
-    E --> D
-    D --> F{State Changed?}
-    F -->|Yes| G[Trigger Alerts]
-    F -->|No| H[Update Telemetry]
-    G --> H
-    H --> I[Wait Interval]
-    I --> A
+    B --> C{Multiple Matches?}
+    C -->|Yes| D[Apply Priority Logic]
+    C -->|No| E[Single State Detected]
+    D --> F[RUN_COMMAND > ACTIVE > IDLE]
+    F --> G[State Stability Check]
+    E --> G
+    G --> H{2 Confirmations?}
+    H -->|Yes| I[Update State]
+    H -->|No| J[Wait for Confirmation]
+    I --> K[Trigger Alerts & Notifications]
+    K --> L[Update Telemetry]
+    L --> M[Wait Interval]
+    J --> M
+    M --> A
 ```
 
-## Installation
+## 📊 Telemetry & Analytics
 
-This project includes a setup script to simplify environment configuration.
-
-1.  **Clone the repository:**
-    ```bash
-    git clone <repository-url>
-    cd agent_monitor_poc
-    ```
-
-2.  **Run the setup script:**
-    ```bash
-    ./setup.sh
-    ```
-    This script creates a Python virtual environment in `venv/`, activates it, and installs all required dependencies from `requirements.txt`.
-
-## Usage
-
-Once the installation is complete, you can start the application using the provided run script.
-
-```bash
-./run.sh
-```
-
-This script activates the virtual environment and starts the monitor. If the virtual environment doesn't exist, it will create it and install dependencies first. A floating control panel will appear on your screen, which you can use to interact with the monitor.
-
-### Project Structure
-```
-agent_monitor_poc/
-├── agent_monitor_poc.py     # Main application
-├── analytics_cli.py         # Analytics command-line interface
-├── capture_template.py     # Template capture utility
-├── container.py             # Dependency injection container
-├── CHANGELOG.md            # Version history and changes
-├── DEV_QUICKSTART.md       # Developer quickstart guide
-├── gotchas.md              # Development gotchas and notes
-├── issues.md               # Known issues and troubleshooting
-├── README.md               # This file
-├── requirements.txt        # Python dependencies
-├── TELEMETRY_README.md     # Detailed telemetry documentation
-├── run_analytics.sh        # Analytics CLI wrapper script
-├── run_tests.sh            # Test execution script
-├── run.sh                  # Application launcher script
-├── setup.sh                # Environment setup script
-├── assets/                 # Organized asset directory
-│   ├── README.md          # Asset organization documentation
-│   ├── ui-cursor/         # Cursor IDE UI element images
-│   │   ├── agent_active/  # Active state templates
-│   │   │   ├── active_template_*.png
-│   │   │   └── generating_button.png
-│   │   ├── agent_idle/    # Idle state templates
-│   │   │   ├── idle_button.png
-│   │   │   └── idle_template_*.png
-│   │   ├── run_command/   # Command execution templates
-│   │   │   └── run_button.png
-│   │   └── README.md      # UI assets documentation
-│   └── audio/             # Audio assets
-│       ├── alerts/        # Sound notification files
-│       │   ├── alert_ascending.wav
-│       │   ├── alert_completed.wav
-│       │   ├── alert_custom_tada.wav
-│       │   ├── alert_descending.wav
-│       │   ├── alert_error.wav
-│       │   ├── alert_idle_simple.wav
-│       │   ├── alert_notification.wav
-│       │   ├── alert_success.wav
-│       │   ├── alert_thinking.wav
-│       │   ├── alert_waiting.wav
-│       │   └── alert_warning.wav
-│       └── scripts/       # Audio generation utilities
-│           ├── create_alert.py
-│           ├── custom_alert_example.py
-│           └── sound_generator.py
-├── database/              # Database files (git-ignored)
-│   ├── telemetry.db      # SQLite database
-│   └── charts/           # Generated charts
-├── docs/                  # Documentation
-│   ├── acceptance-tests/  # Acceptance testing documentation
-│   │   ├── acceptance-tests.md
-│   │   └── README-accpetance-tests.md
-│   ├── adrs/             # Architecture Decision Records
-│   │   ├── ADR-001.md
-│   │   ├── ADR-002.md
-│   │   ├── ADR-003.md
-│   │   ├── adr-XXX-template.md
-│   │   └── index.md
-│   ├── images/           # Documentation images
-│   │   ├── example_active-state.png
-│   │   └── example_idle-state.png
-│   ├── roadmap/          # Feature roadmap documentation
-│   │   ├── agent-automation.md
-│   │   ├── long-term.md
-│   │   ├── medium-term.md
-│   │   ├── README.md
-│   │   └── short-term.md
-│   └── roadmap-comprehensive.md
-├── telemetry/             # Telemetry package
-│   ├── __init__.py       # Package initialization
-│   ├── analytics.py      # Analytics service
-│   ├── interfaces.py     # Protocol definitions
-│   ├── models.py         # Database models and schemas
-│   ├── sqlite_repository.py # SQLite implementation
-│   └── telemetry_service.py # Telemetry service
-├── tests/                 # Test infrastructure
-│   ├── __init__.py       # Package initialization
-│   ├── README.md         # Test documentation
-│   ├── test_detection.py # Detection system tests
-│   ├── test_quick_detection.py # Quick detection tests
-│   ├── test_quickstart.py # Quickstart demonstration script
-│   └── test_telemetry.py # Telemetry system tests
-└── venv/                 # Virtual environment (auto-generated)
-```
-
-### Key Dependencies
-- **PyObjC**: Native macOS UI integration
-- **OpenCV**: Computer vision and template matching
-- **SQLite**: Database storage (built into Python)
-- **dependency-injector**: Dependency injection framework
-- **matplotlib**: Data visualization and chart generation
-- **pandas**: Data analysis and CSV export
-- **pytesseract**: OCR capabilities
-- **simpleaudio**: Sound alert playback
-
-## Configuration
-
-### Template Images
-Template images are organized in the `assets/ui-cursor/` directory for Cursor IDE-specific UI elements:
-   - `assets/ui-cursor/generating_button.png`: AI agent's active state indicator
-   - `assets/ui-cursor/idle_button.png`: AI agent's idle state indicator
-   - `assets/ui-cursor/run_button.png`: AI agent ready but waiting for user action
-
-You can create these images by:
-1. Taking a screenshot when the Cursor AI agent is in each state
-2. Cropping to include just the state indicator
-3. Saving in PNG format in the `assets/ui-cursor/` directory
-
-The `ui-cursor` naming convention makes it clear these are Cursor IDE-specific templates and allows for future expansion to support other IDEs or Cursor versions.
-
-### Sound Alerts
-Sound files are organized in the `assets/audio/alerts/` directory:
-- `alert_waiting.wav`: Played when agent becomes idle
-- `alert_thinking.wav`: Played when agent starts processing
-- `alert_completed.wav`: Played when task completes
-- `alert_error.wav`: Played on errors
-- `alert_success.wav`: Played on successful completion
-- `alert_warning.wav`: Played for warnings
-- `alert_notification.wav`: General notification sound
-- `alert_ascending.wav` & `alert_descending.wav`: Tone-based alerts
-- `alert_custom_tada.wav`: Custom celebration sound
-
-Audio generation utilities are available in `assets/audio/scripts/` for creating custom alert sounds.
-
-## Development
-
-This section provides guidance for modifying and extending the application.
-
-### Workflow
-
-1.  **Activate Environment**: Before working, activate the virtual environment: `source venv/bin/activate`.
-2.  **Code**: Modify the Python source code, particularly `agent_monitor_poc.py`.
-3.  **Run**: Execute `./run.sh` to test your changes.
-4.  **Debug**: Use the "Show Debug View" button on the control panel to see a live view of the screen captures and detection rectangles, which helps validate template matching.
-5.  **Test Analytics**: Run `./run_tests.sh` to execute the comprehensive test suite, or run individual tests with `python3 tests/test_telemetry.py` and `python3 tests/test_quickstart.py`.
-
-### Roadmap
-
-The following is a list of potential features and enhancements for this POC:
-
-*   **Packaging**: Bundle the application as a standalone macOS `.app` using `py2app` or `pyinstaller`.
-*   **CLI Arguments**: Add command-line arguments for configuration (e.g., `--mute`, `--headless`, `--debug`).
-*   **Vision Fallback**: Implement a more advanced vision engine (e.g., using CLIP) as a fallback for template matching.
-*   **Enhanced OCR**: Improve OCR to extract and parse text from agent responses for more robust state detection.
-*   **Window-Specific Targeting**: Confine screen captures to a specific application window (e.g., Cursor) instead of the entire screen.
-*   **Real-time Analytics Dashboard**: Web-based dashboard for real-time monitoring and analytics.
-*   **Machine Learning**: Use collected telemetry data to train ML models for improved detection accuracy.
-*   **API Integration**: REST API for external systems to query telemetry data and control the monitor.
-
-### Developer Notes & Gotchas
-
-Working with PyObjC to create native macOS UI from Python can be tricky. Here are some key "gotchas" discovered during development:
-
-*   **PyObjC Method Signatures**: The translation from Objective-C to Python method names is very specific. An Objective-C method like `-(void)doSomething:(id)arg1 withThing:(id)arg2;` becomes `doSomething_withThing_(self, arg1, arg2)`. Note that **every colon (`:`) becomes an underscore (`_`)**, and the method name **must end with an underscore**.
-*   **UI Threading**: All AppKit UI updates must happen on the main thread. The application uses `NSTimer` to periodically update the UI from the background monitoring thread in a thread-safe manner.
-*   **Window Styling**: To create modern, transparent, or styled windows, you must call a specific sequence of methods. For example, setting a window's background color to `clearColor` and making it non-opaque are key steps for building custom-shaped UIs.
-
-## Telemetry & Analytics
-
-The application now features a comprehensive SQLite-based telemetry system with dependency injection architecture and advanced analytics capabilities.
-
-### Database Storage
-- **SQLite Database**: All telemetry data is stored in `database/telemetry.db`
-- **Structured Schema**: Events include timestamps, confidence scores, detection methods, match coordinates, and metadata
-- **Event Types**: `idle_detection`, `active_detection`, `detection_failure`, `command_execution`, `state_change`, `error`, `info`
+### Database Features
+- **Rich Event Logging**: All state changes with confidence scores and timestamps
+- **Detection Accuracy Tracking**: Monitor system performance over time
+- **State Duration Analytics**: How long the agent spends in each state
+- **Template Performance**: Which templates work best
 
 ### Analytics CLI
-Use the analytics CLI tool to review data and generate reports:
-
 ```bash
-# Show database information
-./run_analytics.sh info
+# View recent activity
+./run_analytics.sh events --limit 20
 
-# Show recent events
-./run_analytics.sh events --limit 20 --hours 12
-
-# Generate statistics
+# Generate performance reports  
 ./run_analytics.sh stats --hours 24
 
-# Create daily report
-./run_analytics.sh report --date 2024-01-15
+# Create visualization charts
+./run_analytics.sh chart activity_heatmap --days 7
 
-# Show accuracy trends
-./run_analytics.sh trends --days 14
-
-# Generate charts
-./run_analytics.sh chart accuracy_trend --days 14
-./run_analytics.sh chart activity_heatmap --days 30
-./run_analytics.sh chart event_distribution --days 7
-./run_analytics.sh chart confidence_scatter --days 14
-
-# Export data to CSV
-./run_analytics.sh export data.csv --days 7
-
-# Clean up old data
-./run_analytics.sh cleanup --days 30
+# Export data for analysis
+./run_analytics.sh export data.csv --days 30
 ```
 
-### Data Visualization
-The system can generate various charts:
-- **Accuracy Trends**: Line charts showing detection accuracy over time
-- **Activity Heatmaps**: Visual patterns of activity by hour and day
-- **Event Distribution**: Pie charts showing breakdown of event types
-- **Confidence Scatter**: Plots of detection confidence scores over time
+## 🔧 Development
 
-### Enhanced Recording
-Each detection now captures rich metadata:
+### Development Workflow
+```bash
+# 1. Activate environment
+source venv/bin/activate
+
+# 2. Make changes to agent_monitor_poc.py
+
+# 3. Test changes
+./run.sh
+
+# 4. View debug information
+# Use "Show Debug View" in control panel
+
+# 5. Run tests
+./run_tests.sh
+
+# 6. Commit using conventional commits
+git commit -m "feat(detection): improve run_command accuracy"
+```
+
+### Adding New Detection States
+1. **Define new state** in `AgentState` class
+2. **Add templates** to appropriate `assets/ui-cursor/` directory
+3. **Update priority logic** in `EnhancedTemplateMatchDetector`
+4. **Add sound file** to `assets/audio/alerts/`
+5. **Update sound mapping** in `ALERT_SOUNDS`
+6. **Test thoroughly** with different scenarios
+
+### Release Process
+```bash
+# Automated semantic versioning
+./release.sh patch    # Bug fixes (1.0.0 -> 1.0.1)
+./release.sh minor    # New features (1.0.0 -> 1.1.0)
+./release.sh major    # Breaking changes (1.0.0 -> 2.0.0)
+```
+
+## 🎵 Sound Customization
+
+### Available Alert Sounds
+- `alert_ascending.wav` - Rising tone sequence (run_command)
+- `alert_descending.wav` - Falling tone sequence
+- `alert_idle_simple.wav` - Gentle two-note (idle)
+- `alert_notification.wav` - Standard notification
+- `alert_warning.wav` - Attention-grabbing warning
+- `alert_success.wav` - Positive completion sound
+- `alert_error.wav` - Error indication
+- `alert_thinking.wav` - Processing indicator
+- `alert_completed.wav` - Task completion
+- `alert_waiting.wav` - Waiting/pending state
+- `alert_custom_tada.wav` - Celebration sound
+
+### Creating Custom Sounds
+```bash
+# Use the sound generator
+cd assets/audio/scripts/
+python sound_generator.py
+
+# Or create custom alerts
+python custom_alert_example.py
+```
+
+## 📋 Troubleshooting
+
+### Common Issues
+
+**🔧 Detection Not Working**
+- Check template files exist in `assets/ui-cursor/`
+- Verify Cursor IDE is visible on screen
+- Lower `CONFIDENCE_THRESHOLD` if too strict
+- Use Debug View to see detection confidence
+
+**🔇 No Sound Alerts**
+- Check sound files exist in `assets/audio/alerts/`
+- Verify system volume is up
+- Check if monitor is muted (toggle in control panel)
+- Ensure sound player has permissions
+
+**⚠️ Template Warnings**
+```
+[⚠️ WARNING] Idle template 'template.png' has suspiciously high confidence (1.00)!
+[⚠️ WARNING] This template might be too generic and matching active states!
+```
+**Solution**: Recapture template with more specific UI elements
+
+**🔄 Constant State Switching**
+- Increase `MIN_CONFIDENCE_GAP` to 0.2 or higher
+- Add more specific templates for better differentiation
+- Check for UI animations that might affect detection
+
+### Debug Mode
+Enable detailed logging:
 ```python
-telemetry.record_detection(
-    event_type=EventType.IDLE_DETECTION,
-    confidence=0.95,
-    detection_method="TemplateMatchDetector",
-    match_rect=(x, y, width, height),
-    state="idle"
-)
+DIAGNOSTIC_MODE = True
+DIAGNOSTIC_VERBOSITY = "high"
 ```
 
-See `TELEMETRY_README.md` for detailed documentation on the telemetry system architecture and usage.
+Look for these debug messages:
+- `[DETECTOR_WINNER]` - Which detector won and why
+- `[PRIORITY_LOGIC]` - Priority decision process
+- `[STATE_LOGIC]` - State stability tracking
+- `[⚠️ WARNING]` - Template quality issues
 
-For a quick developer guide, see `DEV_QUICKSTART.md`.
+## 🗺️ Roadmap
+
+### Short Term (v1.1.x)
+- **Cross-IDE Support**: Templates for VS Code, IntelliJ, etc.
+- **Custom Alert Scheduling**: Different intervals per state
+- **Template Auto-Update**: Machine learning template optimization
+- **Hotkey Support**: Keyboard shortcuts for common actions
+
+### Medium Term (v1.2.x)
+- **Multi-Monitor Support**: Detection across multiple displays
+- **API Integration**: REST API for external system integration
+- **Advanced Analytics**: Machine learning insights and predictions
+- **Cloud Sync**: Template and settings synchronization
+
+### Long Term (v2.x)
+- **Universal AI Agent Monitor**: Support for any AI assistant
+- **Real-time Dashboard**: Web-based monitoring interface
+- **Team Analytics**: Multi-user deployment and analytics
+- **Plugin Architecture**: Third-party detection extensions
+
+---
+
+**🎉 Enjoy your production-ready AI agent monitor!** 
+
+For detailed documentation see:
+- `CHANGELOG.md` - Version history and changes
+- `docs/GIT_STRATEGY.md` - Development workflow and conventions
+- `TELEMETRY_README.md` - Analytics system documentation
+- `DEV_QUICKSTART.md` - Developer quickstart guide
