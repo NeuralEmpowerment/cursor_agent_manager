@@ -9,7 +9,9 @@ from dependency_injector import containers, providers
 from telemetry import (
     SQLiteTelemetryRepository,
     DefaultTelemetryService,
-    DefaultAnalyticsService
+    DefaultAnalyticsService,
+    StateBasedColorProvider,
+    OpenCVDebugRenderer
 )
 
 class TelemetryContainer(containers.DeclarativeContainer):
@@ -38,6 +40,16 @@ class TelemetryContainer(containers.DeclarativeContainer):
         DefaultAnalyticsService,
         repository=telemetry_repository,
         charts_dir=charts_directory
+    )
+    
+    # Debug visualization services
+    debug_color_provider = providers.Singleton(
+        StateBasedColorProvider
+    )
+    
+    debug_renderer = providers.Factory(
+        OpenCVDebugRenderer,
+        color_provider=debug_color_provider
     )
 
 def initialize_telemetry_system():

@@ -32,9 +32,20 @@ if [ $? -ne 0 ]; then
     exit 1
 fi
 
+# Run priority logic tests
+echo ""
+echo "🎯 Running Priority Logic Tests..."
+python tests/test_priority_logic.py
+
+if [ $? -ne 0 ]; then
+    echo "❌ Priority logic tests failed"
+    exit 1
+fi
+
 echo ""
 echo "✅ All tests passed successfully!"
 echo ""
 echo "You can also run individual tests:"
 echo "  python tests/test_telemetry.py"
-echo "  python tests/test_quickstart.py" 
+echo "  python tests/test_quickstart.py"
+echo "  python tests/test_priority_logic.py" 

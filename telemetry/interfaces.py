@@ -6,7 +6,7 @@ Abstract interfaces for telemetry systems using Protocol for dependency injectio
 """
 
 from abc import ABC, abstractmethod
-from typing import Protocol, List, Optional, Dict, Any
+from typing import Protocol, List, Optional, Dict, Any, Tuple
 from datetime import datetime
 from .models import TelemetryEvent, SessionStats, EventType
 
@@ -88,4 +88,33 @@ class AnalyticsService(Protocol):
     def create_visualization(self, chart_type: str, 
                            data_range: tuple = None) -> str:
         """Create data visualization. Returns path to saved chart."""
+        ... 
+
+class DebugColorProvider(Protocol):
+    """Interface for providing colors based on agent state."""
+    
+    def get_color_for_state(self, state: str) -> Tuple[int, int, int]:
+        """Get BGR color tuple for the given agent state."""
+        ...
+    
+    def get_text_color_for_state(self, state: str) -> Tuple[int, int, int]:
+        """Get BGR color tuple for text associated with the given state."""
+        ...
+
+class DebugRenderer(Protocol):
+    """Interface for rendering debug visualizations."""
+    
+    def render_detection_overlay(self, 
+                                image_array: Any,
+                                detection_rect: Tuple[int, int, int, int],
+                                state: str,
+                                confidence: Optional[float] = None,
+                                label: Optional[str] = None) -> Any:
+        """Render detection overlay on image array with state-based coloring."""
+        ...
+    
+    def create_detection_label(self, 
+                              state: str, 
+                              confidence: Optional[float] = None) -> str:
+        """Create formatted label for detection visualization."""
         ... 

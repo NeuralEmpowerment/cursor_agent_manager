@@ -377,11 +377,10 @@ class EnhancedTemplateMatchDetector:
             template_info = best_template_name if best_template_name else "no template"
             print(f"[DIAGNOSTIC] Best {state_name} match: {best_confidence:.2f} ({template_info})")
             
-            # EXTRA DEBUG: Warn about suspicious high confidence mismatches
+            # DIAGNOSTIC: High confidence detection (only show if chosen but not final winner)
             if best_confidence >= 0.99 and state_name == "idle":
-                print(f"[⚠️  WARNING] Idle template '{template_info}' has suspiciously high confidence ({best_confidence:.2f})!")
-                print(f"[⚠️  WARNING] This template might be too generic and matching active states!")
-                print(f"[⚠️  WARNING] Consider removing or replacing this template.")
+                print(f"[DIAGNOSTIC] Perfect idle match: {best_confidence:.2f} ({template_info})")
+                print(f"[DIAGNOSTIC] Note: Perfect matches are good if the state is actually idle!")
         
         return best_confidence, best_rect, best_template_name
 
@@ -442,6 +441,14 @@ class EnhancedTemplateMatchDetector:
                 confidence = result.get('confidence', 0.0)
                 self.state_confidences[state] = confidence if confidence is not None else 0.0
             
+            # SMART WARNING: Check for potentially too-generic templates
+            high_confidence_states = [(state, conf) for state, conf in self.state_confidences.items() if conf >= 0.95]
+            if len(high_confidence_states) > 1 and DIAGNOSTIC_MODE:
+                print(f"[⚠️  TEMPLATE WARNING] Multiple states with suspiciously high confidence!")
+                for state, conf in high_confidence_states:
+                    print(f"[⚠️  TEMPLATE WARNING]   {state}: {conf:.3f}")
+                print(f"[⚠️  TEMPLATE WARNING] Consider making templates more distinctive to avoid false matches.")
+            
             # Find the best matching state
             valid_states = {}
             for state, result in state_results.items():
@@ -461,46 +468,33 @@ class EnhancedTemplateMatchDetector:
                 self.last_confidence = result['confidence']
                 self._last_match_rect = result['rect']
             else:
-                # Multiple states valid - APPLY PRIORITY LOGIC FIRST
+                # Multiple states valid - FIXED PRIORITY LOGIC: Choose highest confidence with smart run_command priority
                 sorted_states = sorted(valid_states.items(), key=lambda x: x[1]['confidence'], reverse=True)
                 
-                # SMART PRIORITY LOGIC: Prioritize run_command when multiple states detected
                 detected_state = AgentState.UNKNOWN
                 chosen_result = None
                 
-                # Priority 1: Run command (if confidence > 0.4) - needs immediate user action
-                if (AgentState.RUN_COMMAND in valid_states and 
-                    valid_states[AgentState.RUN_COMMAND]['confidence'] > 0.4):
+                best_state, best_result = sorted_states[0]
+                second_state, second_result = sorted_states[1] if len(sorted_states) > 1 else (None, {'confidence': 0.0})
+                
+                confidence_gap = best_result['confidence'] - second_result['confidence']
+                
+                # FIXED LOGIC: Always prioritize run_command when it meets threshold (regardless of confidence vs other states)
+                # Priority 1: Run command (always prioritized if above threshold - needs immediate user action)
+                if AgentState.RUN_COMMAND in valid_states:
                     detected_state = AgentState.RUN_COMMAND
                     chosen_result = valid_states[AgentState.RUN_COMMAND]
                     
-                # Priority 2: Active state (if confidence >= threshold and no run command chosen)
-                elif (AgentState.ACTIVE in valid_states and 
-                      valid_states[AgentState.ACTIVE]['confidence'] >= self.confidence_threshold):
-                    detected_state = AgentState.ACTIVE
-                    chosen_result = valid_states[AgentState.ACTIVE]
-                    
-                # Priority 3: Idle state (if confidence >= threshold)
-                elif (AgentState.IDLE in valid_states and 
-                      valid_states[AgentState.IDLE]['confidence'] >= self.confidence_threshold):
-                    detected_state = AgentState.IDLE
-                    chosen_result = valid_states[AgentState.IDLE]
+                # Priority 2: Highest confidence wins (fixed from arbitrary active/idle priority)
+                elif confidence_gap >= self.min_confidence_gap:
+                    # Clear winner based on confidence
+                    detected_state = best_state
+                    chosen_result = best_result
                 else:
-                    # Fall back to highest confidence
-                    best_state, best_result = sorted_states[0]
-                    second_state, second_result = sorted_states[1]
-                    
-                    confidence_gap = best_result['confidence'] - second_result['confidence']
-                    
-                    if confidence_gap >= self.min_confidence_gap:
-                        # Clear winner
-                        detected_state = best_state
-                        chosen_result = best_result
-                    else:
-                        # Too close - stay unknown to avoid flickering
-                        detected_state = AgentState.UNKNOWN
-                        if DIAGNOSTIC_MODE and DIAGNOSTIC_VERBOSITY == "high":
-                            print(f"[DIAGNOSTIC] Confidence gap too small ({confidence_gap:.2f}) between {best_state} and {second_state}")
+                    # Too close - stay unknown to avoid flickering
+                    detected_state = AgentState.UNKNOWN
+                    if DIAGNOSTIC_MODE and DIAGNOSTIC_VERBOSITY == "high":
+                        print(f"[DIAGNOSTIC] Confidence gap too small ({confidence_gap:.2f}) between {best_state} and {second_state}")
                 
                 # Set results if we chose a state
                 if chosen_result:
@@ -509,10 +503,11 @@ class EnhancedTemplateMatchDetector:
                     
                     if DIAGNOSTIC_MODE and DIAGNOSTIC_VERBOSITY == "high":
                         if detected_state == AgentState.RUN_COMMAND:
+                            idle_conf = valid_states.get(AgentState.IDLE, {}).get('confidence', 0.0)
                             active_conf = valid_states.get(AgentState.ACTIVE, {}).get('confidence', 0.0)
-                            print(f"[DIAGNOSTIC] RUN_COMMAND prioritized over other states (run:{chosen_result['confidence']:.2f} vs active:{active_conf:.2f})")
+                            print(f"[DIAGNOSTIC] RUN_COMMAND chosen (run:{chosen_result['confidence']:.2f} vs idle:{idle_conf:.2f} vs active:{active_conf:.2f})")
                         else:
-                            print(f"[DIAGNOSTIC] Selected {detected_state} with confidence {chosen_result['confidence']:.2f}")
+                            print(f"[DIAGNOSTIC] Selected {detected_state} with confidence {chosen_result['confidence']:.2f} (gap: {confidence_gap:.2f})")
             
             # Apply state stability check
             stable_state = self._get_stable_state(detected_state)
@@ -887,12 +882,13 @@ class AgentMonitor:
 
 # === GUI Control Panel ===
 class ControlPanel(NSObject):
-    def initWithMonitor_(self, monitor):
+    def initWithMonitor_debugRenderer_(self, monitor, debug_renderer):
         self = objc.super(ControlPanel, self).init()
         if self is None:
             return None
             
         self.monitor = monitor
+        self.debug_renderer = debug_renderer
         self.debug_window = None
         self.show_debug = False
         self.alpha = 0.95
@@ -1276,19 +1272,14 @@ class ControlPanel(NSObject):
                 if rect is not None:
                     # Ensure rect has 4 values (x, y, width, height)
                     if len(rect) >= 4:
-                        x, y, w, h = rect[:4]
-                        # Draw green rectangle around detected area
-                        cv2.rectangle(img_array, (int(x), int(y)), (int(x + w), int(y + h)), (0, 255, 0), 3)
-                        
-                        # Add text label showing detection info
-                        label = f"Detected: {self.monitor.current_state}"
-                        if self.monitor.last_confidence is not None:
-                            label += f" ({self.monitor.last_confidence:.3f})"
-                        
-                        # Put text above the rectangle
-                        text_y = max(int(y) - 10, 20)
-                        cv2.putText(img_array, label, (int(x), text_y), 
-                                   cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+                        # Use debug renderer with state-based coloring
+                        current_state = self.monitor.current_state or "unknown"
+                        img_array = self.debug_renderer.render_detection_overlay(
+                            image_array=img_array,
+                            detection_rect=rect,
+                            state=current_state,
+                            confidence=self.monitor.last_confidence
+                        )
                 
                 # Convert to RGB and save as temporary PNG file
                 img_array_rgb = cv2.cvtColor(img_array, cv2.COLOR_BGR2RGB)
@@ -1407,6 +1398,7 @@ def main():
         # Initialize telemetry with dependency injection
         container = initialize_telemetry_system()
         telemetry_service = container.telemetry_service()
+        debug_renderer = container.debug_renderer()
         
         # Initialize components
         telemetry = LegacyTelemetryAdapter(telemetry_service)
@@ -1443,7 +1435,7 @@ def main():
         service.start()
 
         # Start the control panel
-        panel = ControlPanel.alloc().initWithMonitor_(monitor)
+        panel = ControlPanel.alloc().initWithMonitor_debugRenderer_(monitor, debug_renderer)
         
         # Run the application
         AppKit.NSApp().run()
