@@ -865,11 +865,13 @@ class AgentMonitor:
 
     def toggle_running(self):
         self.paused = not self.paused
-        if not self.muted:
-            if not self.paused:
-                self.sound_player.play_sound("success")
-            else:
-                self.sound_player.play_sound("error")
+        # NOTE: Disabling sounds for pause and unpause temporarily,
+        # but can be enabled in the future
+        # if not self.muted:
+        #     if not self.paused:
+        #         self.sound_player.play_sound("success")
+        #     else:
+        #         self.sound_player.play_sound("error")
 
     def toggle_muted(self):
         self.muted = not self.muted
