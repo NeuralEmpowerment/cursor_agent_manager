@@ -20,7 +20,8 @@ class MockTemplateDetector(EnhancedTemplateMatchDetector):
         self.state_templates = {
             AgentState.IDLE: [],
             AgentState.ACTIVE: [],
-            AgentState.RUN_COMMAND: []
+            AgentState.RUN_COMMAND: [],
+            AgentState.COMMAND_RUNNING: []
         }
         self.confidence_threshold = confidence_threshold
         self.min_confidence_gap = min_confidence_gap
@@ -68,7 +69,12 @@ class MockTemplateDetector(EnhancedTemplateMatchDetector):
                 detected_state = AgentState.RUN_COMMAND
                 self.last_confidence = valid_states[AgentState.RUN_COMMAND]['confidence']
                 
-            # Priority 2: Highest confidence wins
+            # Priority 2: Command running (prioritized if above threshold)
+            elif AgentState.COMMAND_RUNNING in valid_states:
+                detected_state = AgentState.COMMAND_RUNNING
+                self.last_confidence = valid_states[AgentState.COMMAND_RUNNING]['confidence']
+                
+            # Priority 3: Highest confidence wins
             elif confidence_gap >= self.min_confidence_gap:
                 detected_state = best_state
                 self.last_confidence = best_result['confidence']

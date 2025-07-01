@@ -81,13 +81,15 @@ class AgentState:
     IDLE = "idle"
     ACTIVE = "active"
     RUN_COMMAND = "run_command"
+    COMMAND_RUNNING = "command_running"
     UNKNOWN = "unknown"
 
 # State mapping - 1:1 mapping of directories to states
 STATE_TEMPLATE_MAPPING = {
     AgentState.IDLE: ["agent_idle"],
     AgentState.ACTIVE: ["agent_active"],
-    AgentState.RUN_COMMAND: ["run_command"]
+    AgentState.RUN_COMMAND: ["run_command"],
+    AgentState.COMMAND_RUNNING: ["command_running"]
 }
 
 # Sound configuration
@@ -95,6 +97,7 @@ AUDIO_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "
 ALERT_SOUNDS = {
     "idle": "alert_idle_simple.wav",  # New simple two-note sound
     "run_command": "alert_ascending.wav",  # Urgent ascending tone for commands ready to run
+    "command_running": "alert_waiting.wav",  # Gentle waiting tone for command execution
     "error": "alert_error.wav",
     "success": "alert_success.wav",
     "thinking": "alert_thinking.wav",
@@ -105,6 +108,7 @@ ALERT_SOUNDS = {
 # Alert repeat settings
 IDLE_ALERT_REPEAT_INTERVAL = 60  # Repeat idle alert every 60 seconds
 RUN_COMMAND_ALERT_REPEAT_INTERVAL = 60  # Repeat run_command alert every 60 seconds
+COMMAND_RUNNING_ALERT_REPEAT_INTERVAL = 60  # Repeat command_running alert every 60 seconds
 
 # === Enhanced Telemetry with DI ===
 from container import initialize_telemetry_system
@@ -485,7 +489,12 @@ class EnhancedTemplateMatchDetector:
                     detected_state = AgentState.RUN_COMMAND
                     chosen_result = valid_states[AgentState.RUN_COMMAND]
                     
-                # Priority 2: Highest confidence wins (fixed from arbitrary active/idle priority)
+                # Priority 2: Command running (prioritized if above threshold - important ongoing process)
+                elif AgentState.COMMAND_RUNNING in valid_states:
+                    detected_state = AgentState.COMMAND_RUNNING
+                    chosen_result = valid_states[AgentState.COMMAND_RUNNING]
+                    
+                # Priority 3: Highest confidence wins (fixed from arbitrary active/idle priority)
                 elif confidence_gap >= self.min_confidence_gap:
                     # Clear winner based on confidence
                     detected_state = best_state
@@ -505,7 +514,13 @@ class EnhancedTemplateMatchDetector:
                         if detected_state == AgentState.RUN_COMMAND:
                             idle_conf = valid_states.get(AgentState.IDLE, {}).get('confidence', 0.0)
                             active_conf = valid_states.get(AgentState.ACTIVE, {}).get('confidence', 0.0)
-                            print(f"[DIAGNOSTIC] RUN_COMMAND chosen (run:{chosen_result['confidence']:.2f} vs idle:{idle_conf:.2f} vs active:{active_conf:.2f})")
+                            command_running_conf = valid_states.get(AgentState.COMMAND_RUNNING, {}).get('confidence', 0.0)
+                            print(f"[DIAGNOSTIC] RUN_COMMAND chosen (run:{chosen_result['confidence']:.2f} vs cmd_running:{command_running_conf:.2f} vs idle:{idle_conf:.2f} vs active:{active_conf:.2f})")
+                        elif detected_state == AgentState.COMMAND_RUNNING:
+                            idle_conf = valid_states.get(AgentState.IDLE, {}).get('confidence', 0.0)
+                            active_conf = valid_states.get(AgentState.ACTIVE, {}).get('confidence', 0.0)
+                            run_conf = valid_states.get(AgentState.RUN_COMMAND, {}).get('confidence', 0.0)
+                            print(f"[DIAGNOSTIC] COMMAND_RUNNING chosen (cmd_running:{chosen_result['confidence']:.2f} vs run:{run_conf:.2f} vs idle:{idle_conf:.2f} vs active:{active_conf:.2f})")
                         else:
                             print(f"[DIAGNOSTIC] Selected {detected_state} with confidence {chosen_result['confidence']:.2f} (gap: {confidence_gap:.2f})")
             
@@ -642,6 +657,9 @@ class AgentMonitor:
         # Run command alert repeat functionality
         self.run_command_start_time = None  # When run_command state started
         self.last_run_command_alert_time = 0  # Last time we played run_command alert
+        # Command running alert repeat functionality
+        self.command_running_start_time = None  # When command_running state started
+        self.last_command_running_alert_time = 0  # Last time we played command_running alert
 
     def _should_notify_state_change(self, new_state):
         """Determine if we should notify about a state change to prevent spam."""
@@ -716,6 +734,36 @@ class AgentMonitor:
         """Reset run_command state tracking when leaving run_command."""
         self.run_command_start_time = None
         self.last_run_command_alert_time = 0
+
+    def _check_command_running_repeat_alert(self):
+        """Check if we should play a repeating command_running alert."""
+        current_time = time.time()
+        
+        # Only check if we're in command_running state and not muted
+        if self.state != AgentState.COMMAND_RUNNING or self.muted or self.paused:
+            return
+            
+        # If we just entered command_running state, set the start time
+        if self.command_running_start_time is None:
+            self.command_running_start_time = current_time
+            self.last_command_running_alert_time = current_time  # Count initial alert
+            return
+            
+        # Check if enough time has passed since last alert
+        time_since_last_alert = current_time - self.last_command_running_alert_time
+        if time_since_last_alert >= COMMAND_RUNNING_ALERT_REPEAT_INTERVAL:
+            # Play the command_running alert again
+            self.sound_player.play_sound("command_running")
+            self.last_command_running_alert_time = current_time
+            
+            # Show notification for repeat alerts
+            command_duration = int(current_time - self.command_running_start_time)
+            Notifier.notify(f"⏰ COMMAND STILL RUNNING - {command_duration // 60}:{command_duration % 60:02d} elapsed", title="Agent Monitor - Long Running Command")
+
+    def _reset_command_running_tracking(self):
+        """Reset command_running state tracking when leaving command_running."""
+        self.command_running_start_time = None
+        self.last_command_running_alert_time = 0
 
     def scan_and_act(self):
         if not self.running or self.paused:
@@ -826,12 +874,50 @@ class AgentMonitor:
             detection_successful = True
             return
             
+        elif state == AgentState.COMMAND_RUNNING:
+            # Handle command running state (agent actively executing command)
+            if self.state != AgentState.COMMAND_RUNNING:
+                # Reset tracking if coming from a different state
+                self._reset_command_running_tracking()
+                if self.state == AgentState.IDLE:
+                    self._reset_idle_tracking()
+                elif self.state == AgentState.RUN_COMMAND:
+                    self._reset_run_command_tracking()
+                
+                self.state = AgentState.COMMAND_RUNNING
+                
+                # Record detection with enhanced telemetry
+                self.telemetry.record_detection(
+                    confidence=self.last_confidence,
+                    detection_method=best_detector.__class__.__name__,
+                    match_rect=self.last_detection_rect
+                )
+                
+                # Only notify if it's appropriate (not spam)
+                if self._should_notify_state_change(AgentState.COMMAND_RUNNING):
+                    self.last_stable_state = AgentState.COMMAND_RUNNING
+                    self.last_notification_time = time.time()
+                    
+                    # INITIAL NOTIFICATION for command execution
+                    Notifier.notify("🔄 COMMAND EXECUTING - Monitor will alert after 1 minute", title="Agent Monitor - Command Started")
+                        
+                    if not self.muted:
+                        # Use the dedicated command_running sound (waiting tone)
+                        self.sound_player.play_sound("command_running")
+            
+            # Check for repeating command_running alerts (1-minute timeout)
+            self._check_command_running_repeat_alert()
+            detection_successful = True
+            return
+            
         elif state == AgentState.ACTIVE:
             # Reset tracking when becoming active
             if self.state == AgentState.IDLE:
                 self._reset_idle_tracking()
             elif self.state == AgentState.RUN_COMMAND:
                 self._reset_run_command_tracking()
+            elif self.state == AgentState.COMMAND_RUNNING:
+                self._reset_command_running_tracking()
             
             # Only update main state and notify if this is a meaningful state change
             if self.state != AgentState.ACTIVE:

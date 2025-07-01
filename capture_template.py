@@ -91,12 +91,12 @@ def save_as_template():
     """Save current screenshot as a new template."""
     print("\n=== SAVE AS TEMPLATE ===")
     print("Available states:")
-    for i, state in enumerate(['idle', 'active', 'run_command'], 1):
+    for i, state in enumerate(['idle', 'active', 'run_command', 'command_running'], 1):
         print(f"{i}. {state}")
     
-    choice = input("Which state does this represent? (1-3): ").strip()
+    choice = input("Which state does this represent? (1-4): ").strip()
     
-    state_map = {'1': 'idle', '2': 'active', '3': 'run_command'}
+    state_map = {'1': 'idle', '2': 'active', '3': 'run_command', '4': 'command_running'}
     if choice not in state_map:
         print("Invalid choice!")
         return
@@ -114,7 +114,8 @@ def save_as_template():
     dir_map = {
         'idle': 'assets/ui-cursor/agent_idle',
         'active': 'assets/ui-cursor/agent_active', 
-        'run_command': 'assets/ui-cursor/run_command'
+        'run_command': 'assets/ui-cursor/run_command',
+        'command_running': 'assets/ui-cursor/command_running'
     }
     
     directory = dir_map[state]
