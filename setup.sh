@@ -10,13 +10,13 @@ fi
 echo "Activating virtual environment..."
 source venv/bin/activate
 
-# Upgrade pip
+# Upgrade pip using python -m pip (works better with pyenv)
 echo "Upgrading pip..."
-pip install --upgrade pip
+python -m pip install --upgrade pip
 
-# Install requirements
+# Install requirements using python -m pip (works better with pyenv)
 echo "Installing dependencies from requirements.txt..."
-pip install -r requirements.txt
+python -m pip install -r requirements.txt
 
 # Make run script executable
 chmod +x run.sh

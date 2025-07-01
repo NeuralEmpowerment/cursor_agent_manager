@@ -6,7 +6,7 @@ if [ ! -d "venv" ]; then
     echo "Virtual environment not found. Creating one..."
     python3 -m venv venv
     source venv/bin/activate
-    pip install -r requirements.txt
+    python -m pip install -r requirements.txt
 else
     source venv/bin/activate
 fi
@@ -17,8 +17,6 @@ if [ ! -f "agent_monitor_poc.py" ]; then
     exit 1
 fi
 
-
-
-# Run the application
+# Run the application using python (which will be the venv python after activation)
 echo "Starting Agent Monitor..."
-python3 agent_monitor_poc.py
+python agent_monitor_poc.py

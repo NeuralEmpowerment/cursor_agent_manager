@@ -5,6 +5,24 @@ All notable changes to the Cursor Agent Monitor will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.2] - 2025-01-03
+
+### 📋 Pre-Development Checkpoint
+- **Project Planning**: Created comprehensive project plan for Enhanced Statistics System with Duration Tracking & Web Dashboard
+- **Architecture Documentation**: Defined Domain Driven Design structure with clean architecture principles
+- **Development Preparation**: Established SOLID principles implementation roadmap with dependency injection enhancements
+- **Version Control**: Tagged stable checkpoint before major feature development
+
+### 📊 Planned Features (Next Release)
+- State duration tracking with second-level precision
+- Interactive web dashboard with Chart.js visualizations
+- Daily/weekly/monthly cumulative runtime views
+- Clean hexagonal architecture with domain separation
+- Enhanced dependency injection container
+- Unified startup script for monitor and dashboard
+
+---
+
 ## [2.0.1] - 2025-06-27
 
 ### ✨ Added
