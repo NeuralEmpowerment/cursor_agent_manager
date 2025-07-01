@@ -19,6 +19,12 @@ class EventType(Enum):
     STATE_CHANGE = "state_change"
     ERROR = "error"
     INFO = "info"
+    # New event types for enhanced duration tracking
+    STATE_DURATION = "state_duration"
+    SESSION_START = "session_start"
+    SESSION_END = "session_end"
+    APP_PAUSE = "app_pause"
+    APP_RESUME = "app_resume"
 
 @dataclass
 class TelemetryEvent:
@@ -35,6 +41,9 @@ class TelemetryEvent:
     match_rect_width: Optional[int] = None
     match_rect_height: Optional[int] = None
     metadata: Optional[str] = None  # JSON string for additional data
+    # New fields for duration tracking
+    duration_seconds: Optional[float] = None
+    session_id: Optional[str] = None
 
 @dataclass
 class SessionStats:
@@ -63,15 +72,23 @@ class DatabaseSchema:
         match_rect_y INTEGER,
         match_rect_width INTEGER,
         match_rect_height INTEGER,
-        metadata TEXT
+        metadata TEXT,
+        duration_seconds REAL,
+        session_id TEXT
     )
     """
     
     CREATE_SESSIONS_TABLE = """
     CREATE TABLE IF NOT EXISTS monitoring_sessions (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        session_start DATETIME DEFAULT CURRENT_TIMESTAMP,
+        session_id TEXT UNIQUE NOT NULL,
+        session_start DATETIME NOT NULL,
         session_end DATETIME,
+        total_runtime_seconds REAL DEFAULT 0,
+        total_idle_seconds REAL DEFAULT 0,
+        total_active_seconds REAL DEFAULT 0,
+        total_run_command_seconds REAL DEFAULT 0,
+        total_pause_seconds REAL DEFAULT 0,
         total_events INTEGER DEFAULT 0,
         config_snapshot TEXT
     )
@@ -88,11 +105,41 @@ class DatabaseSchema:
     )
     """
 
+    CREATE_DOMAIN_EVENTS_TABLE = """
+    CREATE TABLE IF NOT EXISTS domain_events (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        aggregate_id TEXT NOT NULL,
+        event_type TEXT NOT NULL,
+        event_data TEXT NOT NULL,
+        timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+        version INTEGER NOT NULL
+    )
+    """
+
+    # Performance indexes for duration queries
+    CREATE_INDEXES = [
+        "CREATE INDEX IF NOT EXISTS idx_telemetry_events_timestamp ON telemetry_events(timestamp)",
+        "CREATE INDEX IF NOT EXISTS idx_telemetry_events_type ON telemetry_events(event_type)",
+        "CREATE INDEX IF NOT EXISTS idx_telemetry_events_state ON telemetry_events(state)",
+        "CREATE INDEX IF NOT EXISTS idx_telemetry_events_session_id ON telemetry_events(session_id)",
+        "CREATE INDEX IF NOT EXISTS idx_telemetry_events_duration ON telemetry_events(duration_seconds)",
+        "CREATE INDEX IF NOT EXISTS idx_monitoring_sessions_session_id ON monitoring_sessions(session_id)",
+        "CREATE INDEX IF NOT EXISTS idx_monitoring_sessions_start ON monitoring_sessions(session_start)",
+        "CREATE INDEX IF NOT EXISTS idx_domain_events_aggregate ON domain_events(aggregate_id)",
+        "CREATE INDEX IF NOT EXISTS idx_domain_events_type ON domain_events(event_type)",
+    ]
+
     @staticmethod
     def get_all_schemas() -> List[str]:
         """Get all schema creation statements."""
         return [
             DatabaseSchema.CREATE_EVENTS_TABLE,
             DatabaseSchema.CREATE_SESSIONS_TABLE,
-            DatabaseSchema.CREATE_PERFORMANCE_TABLE
-        ] 
+            DatabaseSchema.CREATE_PERFORMANCE_TABLE,
+            DatabaseSchema.CREATE_DOMAIN_EVENTS_TABLE
+        ]
+
+    @staticmethod
+    def get_all_indexes() -> List[str]:
+        """Get all index creation statements."""
+        return DatabaseSchema.CREATE_INDEXES 

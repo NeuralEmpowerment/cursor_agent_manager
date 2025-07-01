@@ -8,8 +8,8 @@ Concrete implementation of TelemetryRepository using SQLite database.
 import sqlite3
 import json
 import os
-from datetime import datetime, timedelta
-from typing import List, Optional, Dict, Any
+from datetime import datetime, timedelta, date
+from typing import List, Optional, Dict, Any, Tuple
 from .models import TelemetryEvent, SessionStats, EventType, DatabaseSchema
 from .interfaces import TelemetryRepository
 
@@ -27,10 +27,16 @@ class SQLiteTelemetryRepository:
             os.makedirs(db_dir, exist_ok=True)
     
     def initialize(self) -> None:
-        """Initialize the database with required tables."""
+        """Initialize the database with required tables and indexes."""
         with sqlite3.connect(self.db_path) as conn:
+            # Create all tables
             for schema in DatabaseSchema.get_all_schemas():
                 conn.execute(schema)
+            
+            # Create all indexes for performance
+            for index in DatabaseSchema.get_all_indexes():
+                conn.execute(index)
+            
             conn.commit()
     
     def log_event(self, event: TelemetryEvent) -> int:
@@ -47,8 +53,9 @@ class SQLiteTelemetryRepository:
             cursor.execute("""
                 INSERT INTO telemetry_events 
                 (timestamp, event_type, message, confidence, state, detection_method,
-                 match_rect_x, match_rect_y, match_rect_width, match_rect_height, metadata)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 match_rect_x, match_rect_y, match_rect_width, match_rect_height, metadata,
+                 duration_seconds, session_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 event.timestamp or datetime.now(),
                 event_type_str,
@@ -60,7 +67,9 @@ class SQLiteTelemetryRepository:
                 event.match_rect_y,
                 event.match_rect_width,
                 event.match_rect_height,
-                metadata_json
+                metadata_json,
+                event.duration_seconds,
+                event.session_id
             ))
             
             event_id = cursor.lastrowid
@@ -118,7 +127,9 @@ class SQLiteTelemetryRepository:
                     match_rect_y=row['match_rect_y'],
                     match_rect_width=row['match_rect_width'],
                     match_rect_height=row['match_rect_height'],
-                    metadata=metadata
+                    metadata=metadata,
+                    duration_seconds=row.get('duration_seconds'),
+                    session_id=row.get('session_id')
                 )
                 events.append(event)
             
@@ -187,6 +198,197 @@ class SQLiteTelemetryRepository:
             
             return stats
     
+    # NEW DURATION-BASED QUERY METHODS FOR ENHANCED ANALYTICS
+    
+    def get_daily_durations(self, target_date: date) -> Dict[str, float]:
+        """Get total duration by state for a specific day."""
+        start_time = datetime.combine(target_date, datetime.min.time())
+        end_time = start_time + timedelta(days=1)
+        
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            
+            cursor.execute("""
+                SELECT state, SUM(duration_seconds) as total_duration
+                FROM telemetry_events 
+                WHERE timestamp BETWEEN ? AND ? 
+                AND duration_seconds IS NOT NULL
+                AND state IS NOT NULL
+                GROUP BY state
+            """, (start_time, end_time))
+            
+            results = cursor.fetchall()
+            return {state: duration for state, duration in results}
+    
+    def get_weekly_durations(self, start_date: date) -> Dict[str, Dict[str, float]]:
+        """Get duration breakdown by state for each day in a week."""
+        weekly_data = {}
+        
+        for i in range(7):
+            current_date = start_date + timedelta(days=i)
+            daily_durations = self.get_daily_durations(current_date)
+            weekly_data[current_date.isoformat()] = daily_durations
+        
+        return weekly_data
+    
+    def get_monthly_durations(self, month: int, year: int) -> Dict[str, Dict[str, float]]:
+        """Get duration breakdown by state for each day in a month."""
+        from calendar import monthrange
+        
+        start_date = date(year, month, 1)
+        days_in_month = monthrange(year, month)[1]
+        monthly_data = {}
+        
+        for day in range(1, days_in_month + 1):
+            current_date = date(year, month, day)
+            daily_durations = self.get_daily_durations(current_date)
+            monthly_data[current_date.isoformat()] = daily_durations
+        
+        return monthly_data
+    
+    def get_cumulative_stats(self, start_date: date, end_date: date) -> Dict[str, Any]:
+        """Get cumulative statistics for a date range."""
+        start_time = datetime.combine(start_date, datetime.min.time())
+        end_time = datetime.combine(end_date, datetime.max.time())
+        
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            
+            # Get total durations by state
+            cursor.execute("""
+                SELECT 
+                    state,
+                    SUM(duration_seconds) as total_duration,
+                    COUNT(*) as event_count,
+                    AVG(duration_seconds) as avg_duration,
+                    MIN(duration_seconds) as min_duration,
+                    MAX(duration_seconds) as max_duration
+                FROM telemetry_events 
+                WHERE timestamp BETWEEN ? AND ? 
+                AND duration_seconds IS NOT NULL
+                AND state IS NOT NULL
+                GROUP BY state
+            """, (start_time, end_time))
+            
+            state_stats = {}
+            for row in cursor.fetchall():
+                state, total, count, avg, min_dur, max_dur = row
+                state_stats[state] = {
+                    'total_duration': total,
+                    'event_count': count,
+                    'average_duration': avg,
+                    'min_duration': min_dur,
+                    'max_duration': max_dur
+                }
+            
+            # Get overall statistics
+            cursor.execute("""
+                SELECT 
+                    COUNT(*) as total_events,
+                    SUM(duration_seconds) as total_duration,
+                    AVG(confidence) as avg_confidence,
+                    MIN(timestamp) as first_event,
+                    MAX(timestamp) as last_event
+                FROM telemetry_events 
+                WHERE timestamp BETWEEN ? AND ?
+            """, (start_time, end_time))
+            
+            overall = cursor.fetchone()
+            
+            return {
+                'date_range': {
+                    'start': start_date.isoformat(),
+                    'end': end_date.isoformat()
+                },
+                'overall': {
+                    'total_events': overall[0],
+                    'total_duration': overall[1] or 0,
+                    'average_confidence': overall[2] or 0,
+                    'first_event': overall[3],
+                    'last_event': overall[4],
+                    'period_days': (end_date - start_date).days + 1
+                },
+                'by_state': state_stats
+            }
+    
+    # SESSION MANAGEMENT METHODS
+    
+    def create_session(self, session_id: str, config_snapshot: Optional[str] = None) -> int:
+        """Create a new monitoring session."""
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            
+            cursor.execute("""
+                INSERT INTO monitoring_sessions 
+                (session_id, session_start, config_snapshot)
+                VALUES (?, ?, ?)
+            """, (session_id, datetime.now(), config_snapshot))
+            
+            session_record_id = cursor.lastrowid
+            conn.commit()
+            return session_record_id
+    
+    def end_session(self, session_id: str) -> None:
+        """End a monitoring session and calculate final statistics."""
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            
+            # Calculate session statistics from events
+            cursor.execute("""
+                SELECT 
+                    COUNT(*) as total_events,
+                    SUM(CASE WHEN state = 'idle' AND duration_seconds IS NOT NULL 
+                        THEN duration_seconds ELSE 0 END) as total_idle,
+                    SUM(CASE WHEN state = 'active' AND duration_seconds IS NOT NULL 
+                        THEN duration_seconds ELSE 0 END) as total_active,
+                    SUM(CASE WHEN state = 'run_command' AND duration_seconds IS NOT NULL 
+                        THEN duration_seconds ELSE 0 END) as total_run_command,
+                    SUM(CASE WHEN duration_seconds IS NOT NULL 
+                        THEN duration_seconds ELSE 0 END) as total_runtime
+                FROM telemetry_events 
+                WHERE session_id = ?
+            """, (session_id,))
+            
+            stats = cursor.fetchone()
+            
+            # Update session record
+            cursor.execute("""
+                UPDATE monitoring_sessions 
+                SET session_end = ?,
+                    total_events = ?,
+                    total_idle_seconds = ?,
+                    total_active_seconds = ?,
+                    total_run_command_seconds = ?,
+                    total_runtime_seconds = ?
+                WHERE session_id = ?
+            """, (
+                datetime.now(),
+                stats[0],  # total_events
+                stats[1],  # total_idle
+                stats[2],  # total_active
+                stats[3],  # total_run_command
+                stats[4],  # total_runtime
+                session_id
+            ))
+            
+            conn.commit()
+    
+    def get_session_info(self, session_id: str) -> Optional[Dict[str, Any]]:
+        """Get information about a specific session."""
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            
+            cursor.execute("""
+                SELECT * FROM monitoring_sessions 
+                WHERE session_id = ?
+            """, (session_id,))
+            
+            row = cursor.fetchone()
+            if row:
+                return dict(row)
+            return None
+    
     def cleanup_old_data(self, days_to_keep: int = 30) -> int:
         """Clean up old data. Returns number of records removed."""
         cutoff_date = datetime.now() - timedelta(days=days_to_keep)
@@ -211,6 +413,9 @@ class SQLiteTelemetryRepository:
             cursor.execute("SELECT COUNT(*) FROM telemetry_events")
             event_count = cursor.fetchone()[0]
             
+            cursor.execute("SELECT COUNT(*) FROM monitoring_sessions")
+            session_count = cursor.fetchone()[0]
+            
             # Get database size
             cursor.execute("PRAGMA page_count")
             page_count = cursor.fetchone()[0]
@@ -225,11 +430,28 @@ class SQLiteTelemetryRepository:
             """)
             date_range = cursor.fetchone()
             
+            # Get duration tracking statistics
+            cursor.execute("""
+                SELECT 
+                    COUNT(*) as events_with_duration,
+                    SUM(duration_seconds) as total_tracked_duration,
+                    AVG(duration_seconds) as avg_duration
+                FROM telemetry_events 
+                WHERE duration_seconds IS NOT NULL
+            """)
+            duration_stats = cursor.fetchone()
+            
             return {
                 "db_path": self.db_path,
                 "total_events": event_count,
+                "total_sessions": session_count,
                 "db_size_bytes": db_size_bytes,
                 "db_size_mb": round(db_size_bytes / (1024 * 1024), 2),
                 "earliest_event": date_range[0] if date_range[0] else None,
-                "latest_event": date_range[1] if date_range[1] else None
+                "latest_event": date_range[1] if date_range[1] else None,
+                "duration_tracking": {
+                    "events_with_duration": duration_stats[0],
+                    "total_tracked_seconds": duration_stats[1] or 0,
+                    "average_duration": duration_stats[2] or 0
+                }
             } 
