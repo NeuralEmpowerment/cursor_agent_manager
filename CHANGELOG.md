@@ -5,6 +5,59 @@ All notable changes to the Cursor Agent Monitor will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.3] - 2025-07-01
+
+### 🛡️ CRITICAL - Fixed Segmentation Fault (Threading Safety)
+
+This patch release resolves a critical segmentation fault that was causing the application to crash during idle state detection.
+
+### 🔧 Fixed
+- **💥 Segmentation Fault Resolution**: Completely eliminated threading-related crashes
+  - **Root Cause**: `simpleaudio` library causing threading violations when called from background thread
+  - **Solution**: Replaced with macOS native `NSSound` APIs for thread-safe audio playback
+  - **Impact**: Application now runs indefinitely without crashes during state transitions
+
+- **🔄 Thread-Safe Notification System**: Implemented queue-based cross-thread communication
+  - Background thread queues notifications instead of direct GUI API calls
+  - Main thread timer processes notification queue every 100ms
+  - Eliminates all threading violations with macOS AppKit APIs
+  - Uses `queue.Queue` for guaranteed thread safety
+
+- **🎵 Audio System Overhaul**: Complete replacement of audio backend
+  - Removed `simpleaudio` dependency causing segfaults
+  - Implemented `ThreadSafeSoundPlayer` using `AppKit.NSSound`
+  - Native macOS audio APIs are inherently thread-safe
+  - Added comprehensive error handling and caching
+
+### 🚀 Improved
+- **🧵 Threading Architecture**: Robust cross-thread communication pattern
+  - `NotificationQueue` class with thread-safe queuing
+  - `ThreadSafeNotifier` for safe background thread notifications  
+  - Main thread timer for GUI operation processing
+  - Complete separation of background and GUI thread operations
+
+- **🔍 Error Handling**: Enhanced stability and debugging
+  - Comprehensive exception handling in monitor loop
+  - Full stack traces for debugging threading issues
+  - Graceful degradation when audio/notification systems fail
+  - Application continues running even if individual components fail
+
+### 📋 Technical Details
+- **Threading Model**: Background monitoring → Queue → Main thread GUI operations
+- **Audio Backend**: `simpleaudio` → `AppKit.NSSound` (native macOS)
+- **Notification System**: Direct dispatch → Queue-based processing
+- **Safety**: Zero cross-thread GUI API calls, all operations properly isolated
+
+### 💥 Breaking Changes
+- Removed `simpleaudio` dependency (replaced with native macOS audio)
+- Audio initialization now uses `NSSound.alloc().initWithContentsOfFile_byReference_()`
+
+### 🗑️ Removed
+- `import simpleaudio as sa` - replaced with native macOS APIs
+- Direct cross-thread GUI operations - replaced with queue system
+
+---
+
 ## [2.0.2] - 2025-01-03
 
 ### 📋 Pre-Development Checkpoint

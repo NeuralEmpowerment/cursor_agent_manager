@@ -24,7 +24,7 @@ from typing import Optional, Protocol
 from PIL import ImageGrab, Image
 import pytesseract
 import queue
-import simpleaudio as sa
+# import simpleaudio as sa  # Removed: replaced with NSSound for thread safety
 import os
 import cv2
 import numpy as np
@@ -36,6 +36,97 @@ import objc
 from Foundation import NSObject, NSMakeRect, NSMakePoint, NSLayoutConstraint
 import signal
 import sys
+
+########################################################
+# === Thread-Safe GUI Operations ===
+########################################################
+
+class NotificationQueue:
+    """Thread-safe notification queue for cross-thread GUI communication."""
+    
+    def __init__(self):
+        self._queue = queue.Queue()
+    
+    def put_notification(self, message: str, title: str = "Agent Monitor"):
+        """Queue a notification to be processed by main thread."""
+        try:
+            self._queue.put_nowait({"message": message, "title": title})
+        except queue.Full:
+            print(f"[WARNING] Notification queue full, dropping: {title}: {message}")
+    
+    def process_notifications(self):
+        """Process all queued notifications. Must be called from main thread."""
+        notifications_processed = 0
+        while not self._queue.empty() and notifications_processed < 10:  # Limit processing per cycle
+            try:
+                notification = self._queue.get_nowait()
+                try:
+                    Notifier.notify(notification["message"], title=notification["title"])
+                except Exception as e:
+                    print(f"[ERROR] Notification failed: {e}")
+                notifications_processed += 1
+            except queue.Empty:
+                break
+        return notifications_processed
+
+# Global notification queue instance
+_notification_queue = NotificationQueue()
+
+class ThreadSafeNotifier:
+    """Thread-safe wrapper for notifications using queue-based approach."""
+    
+    @staticmethod
+    def notify(message: str, title: str = "Agent Monitor"):
+        """Send a notification safely from any thread via queue."""
+        # Always queue notifications - main thread timer will process them
+        _notification_queue.put_notification(message, title)
+        
+        # Also print for immediate feedback
+        print(f"[QUEUED NOTIFICATION] {title}: {message}")
+
+class ThreadSafeSoundPlayer:
+    """Thread-safe sound player using macOS native NSSound APIs."""
+    
+    def __init__(self):
+        self._cache = {}
+        self._lock = threading.Lock()
+        
+    def play_sound(self, sound_type: str):
+        """Play sound with thread safety using NSSound (native macOS)."""
+        # Check if audio is disabled globally
+        if not AUDIO_ENABLED:
+            print(f"[AUDIO DISABLED] Skipping sound: {sound_type}")
+            return
+            
+        if sound_type not in ALERT_SOUNDS:
+            return
+            
+        sound_path = os.path.join(AUDIO_DIR, ALERT_SOUNDS[sound_type])
+        if not os.path.exists(sound_path):
+            print(f"[WARNING] Sound file not found: {sound_path}")
+            return
+            
+        try:
+            with self._lock:
+                # Cache NSSound objects if not already cached
+                if sound_path not in self._cache:
+                    ns_sound = AppKit.NSSound.alloc().initWithContentsOfFile_byReference_(sound_path, True)
+                    if ns_sound:
+                        self._cache[sound_path] = ns_sound
+                    else:
+                        print(f"[ERROR] Failed to load sound file: {sound_path}")
+                        return
+                
+                # Play the cached sound
+                sound = self._cache[sound_path]
+                if sound:
+                    # NSSound.play() is thread-safe and non-blocking
+                    sound.play()
+                    
+        except Exception as e:
+            print(f"[ERROR] Failed to play sound '{sound_type}': {e}")
+            # Continue execution - audio failure shouldn't crash the app
+
 ########################################################
 # === Configuration ===
 ########################################################
@@ -44,7 +135,8 @@ import sys
 TEMPLATE_DIRECTORIES = {
     "agent_idle": "assets/ui-cursor/agent_idle",
     "agent_active": "assets/ui-cursor/agent_active", 
-    "run_command": "assets/ui-cursor/run_command"
+    "run_command": "assets/ui-cursor/run_command",
+    "command_running": "assets/ui-cursor/command_running"
 }
 
 # Detection parameters
@@ -62,6 +154,7 @@ AUTO_CLICK_ENABLED = False
 OCR_ENABLED = True
 COMMAND_QUEUE_ENABLED = True
 DIAGNOSTIC_MODE = True
+AUDIO_ENABLED = True  # Re-enabled with thread-safe implementation
 
 # Enhanced diagnostic output settings
 # ===================================
@@ -289,7 +382,8 @@ def load_templates_from_directories(template_dirs: dict, state_mapping: dict):
     state_templates = {
         AgentState.IDLE: [],
         AgentState.ACTIVE: [],
-        AgentState.RUN_COMMAND: []
+        AgentState.RUN_COMMAND: [],
+        AgentState.COMMAND_RUNNING: []
     }
     
     # Load templates for each state
@@ -606,31 +700,7 @@ class CommandExecutor:
         return None
 
 # === Sound Player ===
-class SoundPlayer:
-    def __init__(self):
-        self._cache = {}
-        self._current_play = None
-        
-    def play_sound(self, sound_type: str):
-        if sound_type not in ALERT_SOUNDS:
-            return
-            
-        sound_path = os.path.join(AUDIO_DIR, ALERT_SOUNDS[sound_type])
-        if not os.path.exists(sound_path):
-            print(f"[WARNING] Sound file not found: {sound_path}")
-            return
-            
-        try:
-            if sound_path not in self._cache:
-                self._cache[sound_path] = sa.WaveObject.from_wave_file(sound_path)
-                
-            # Stop current sound if playing
-            if self._current_play and self._current_play.is_playing():
-                self._current_play.stop()
-                
-            self._current_play = self._cache[sound_path].play()
-        except Exception as e:
-            print(f"[ERROR] Failed to play sound: {e}")
+# Note: SoundPlayer is now ThreadSafeSoundPlayer (defined above for thread safety)
 
 # === Cursor Agent Monitor ===
 class AgentMonitor:
@@ -642,7 +712,7 @@ class AgentMonitor:
         self.muted = False
         self.running = True
         self.paused = False
-        self.sound_player = SoundPlayer()
+        self.sound_player = ThreadSafeSoundPlayer()
         self.last_confidence = None
         self.current_state = AgentState.UNKNOWN
         self.last_screenshot = None
@@ -698,7 +768,7 @@ class AgentMonitor:
             
             # Optional: Also show notification for repeat alerts
             idle_duration = int(current_time - self.idle_start_time)
-            Notifier.notify(f"Still idle after {idle_duration // 60}:{idle_duration % 60:02d}", title="Agent Watcher")
+            ThreadSafeNotifier.notify(f"Still idle after {idle_duration // 60}:{idle_duration % 60:02d}", title="Agent Watcher")
 
     def _check_run_command_repeat_alert(self):
         """Check if we should play a repeating run_command alert."""
@@ -723,7 +793,7 @@ class AgentMonitor:
             
             # Show notification for repeat alerts
             command_duration = int(current_time - self.run_command_start_time)
-            Notifier.notify(f"🚨 COMMAND STILL WAITING - {command_duration // 60}:{command_duration % 60:02d} elapsed", title="Agent Monitor - URGENT")
+            ThreadSafeNotifier.notify(f"🚨 COMMAND STILL WAITING - {command_duration // 60}:{command_duration % 60:02d} elapsed", title="Agent Monitor - URGENT")
 
     def _reset_idle_tracking(self):
         """Reset idle state tracking when leaving idle."""
@@ -758,7 +828,7 @@ class AgentMonitor:
             
             # Show notification for repeat alerts
             command_duration = int(current_time - self.command_running_start_time)
-            Notifier.notify(f"⏰ COMMAND STILL RUNNING - {command_duration // 60}:{command_duration % 60:02d} elapsed", title="Agent Monitor - Long Running Command")
+            ThreadSafeNotifier.notify(f"⏰ COMMAND STILL RUNNING - {command_duration // 60}:{command_duration % 60:02d} elapsed", title="Agent Monitor - Long Running Command")
 
     def _reset_command_running_tracking(self):
         """Reset command_running state tracking when leaving command_running."""
@@ -820,7 +890,7 @@ class AgentMonitor:
                     self.last_stable_state = AgentState.IDLE
                     self.last_notification_time = time.time()
                     
-                    Notifier.notify("Agent idle – input may be needed", title="Agent Watcher")
+                    ThreadSafeNotifier.notify("Agent idle – input may be needed", title="Agent Watcher")
                         
                     if not self.muted:
                         self.sound_player.play_sound("idle")
@@ -858,7 +928,7 @@ class AgentMonitor:
                     self.last_notification_time = time.time()
                     
                     # SPECIAL NOTIFICATION for run commands
-                    Notifier.notify("🚨 COMMAND READY - Click Accept/Run to continue!", title="Agent Monitor - Action Required")
+                    ThreadSafeNotifier.notify("🚨 COMMAND READY - Click Accept/Run to continue!", title="Agent Monitor - Action Required")
                         
                     if not self.muted:
                         # Use the dedicated run_command sound (ascending tone)
@@ -899,7 +969,7 @@ class AgentMonitor:
                     self.last_notification_time = time.time()
                     
                     # INITIAL NOTIFICATION for command execution
-                    Notifier.notify("🔄 COMMAND EXECUTING - Monitor will alert after 1 minute", title="Agent Monitor - Command Started")
+                    ThreadSafeNotifier.notify("🔄 COMMAND EXECUTING - Monitor will alert after 1 minute", title="Agent Monitor - Command Started")
                         
                     if not self.muted:
                         # Use the dedicated command_running sound (waiting tone)
@@ -1024,6 +1094,11 @@ class ControlPanel(NSObject):
         
         self.update_timer = AppKit.NSTimer.scheduledTimerWithTimeInterval_target_selector_userInfo_repeats_(
             1.0, self, objc.selector(self.updateDisplay_, signature=b"v@:"), None, True
+        )
+        
+        # Start timer to process notifications from background thread (main thread safety)
+        self.notification_timer = AppKit.NSTimer.scheduledTimerWithTimeInterval_target_selector_userInfo_repeats_(
+            0.1, self, objc.selector(self.processNotifications_, signature=b"v@:"), None, True
         )
         
         return self
@@ -1182,6 +1257,8 @@ class ControlPanel(NSObject):
             state_with_emoji = "🚀 active"
         elif state == "run_command":
             state_with_emoji = "⚡ run_command"
+        elif state == "command_running":
+            state_with_emoji = "🔄 command_running"
         else:
             state_with_emoji = "❓ Unknown"
             
@@ -1205,6 +1282,13 @@ class ControlPanel(NSObject):
             self.stats_last_detection_label.setStringValue_(f"{last_detection_time}")
         
         self._updateDebugView_(None)
+
+    def processNotifications_(self, timer):
+        """Process queued notifications on main thread. Called by timer every 100ms."""
+        try:
+            _notification_queue.process_notifications()
+        except Exception as e:
+            print(f"[ERROR] Failed to process notifications: {e}")
 
     def toggleMonitor_(self, sender):
         self.monitor.toggle_running()
@@ -1334,6 +1418,16 @@ class ControlPanel(NSObject):
     def _updateDebugView_(self, sender):
         if not self.show_debug or not self.debug_window:
             return
+            
+        # Update debug window background color based on state
+        current_state = self.monitor.current_state if self.monitor.current_state else "unknown"
+        if current_state == "command_running":
+            # Blue background for command_running state
+            blue_color = AppKit.NSColor.colorWithCalibratedRed_green_blue_alpha_(0.0, 0.3, 0.8, 0.95)
+            self.debug_window.setBackgroundColor_(blue_color)
+        else:
+            # Default black background for other states
+            self.debug_window.setBackgroundColor_(AppKit.NSColor.blackColor())
         if hasattr(self.monitor, 'last_screenshot') and self.monitor.last_screenshot is not None:
             try:
                 img_array = np.array(self.monitor.last_screenshot)
@@ -1457,6 +1551,9 @@ class AgentWatcherService:
                 time.sleep(CHECK_INTERVAL_SEC)
             except Exception as e:
                 print(f"[ERROR] Monitor loop error: {e}")
+                import traceback
+                traceback.print_exc()
+                # Continue running after errors - don't crash the whole app
                 time.sleep(CHECK_INTERVAL_SEC)
 
     def start(self):
