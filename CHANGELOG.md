@@ -5,6 +5,44 @@ All notable changes to the Cursor Agent Monitor will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.0] - 2025-08-10
+
+### ✨ Added
+- **🖥️ Multi-Display Support (Quartz)**: Monitor a specific physical macOS display
+  - New runtime button in the control panel: “🖥️ Choose Display” to switch displays on the fly
+  - New CLI flags:
+    - `--list-displays` to enumerate available displays and exit
+    - `--display-index <n>` to select a display at startup (enables multiple instances targeting different monitors)
+- **📸 Template Capture Integration**: `capture_template.py` now supports `--display-index` for per-display screenshots
+
+### 🔧 Improved
+- **Screenshot Abstraction**: Introduced `display_capture.py` with `ScreenshotProvider` for Quartz-based screenshots and display enumeration
+- **UI Feedback**: Window title reflects the currently selected display
+- **Backward Compatibility**: Defaults to main display when no selection is provided
+
+### ⚠️ Notes
+- **Mission Control Spaces**: macOS only permits capturing the currently visible Space on the selected display; off-screen Spaces cannot be captured until visible
+
+---
+
+## [2.0.4] - 2025-07-01
+
+### 🔧 Improved
+- **⏰ COMMAND_RUNNING Alert Timing**: Modified to only sound after 1 minute instead of immediately
+  - **Issue**: Previously played alert sound immediately when entering COMMAND_RUNNING state, causing false positives for short-running commands
+  - **Solution**: Removed immediate sound playback, first alert now only plays after 1 minute elapsed
+  - **Benefit**: Eliminates noise from quick commands, only alerts for truly hanging/stalled processes
+  - **User Experience**: Notification still shows immediately with message "Monitor will alert after 1 minute"
+  - **Technical**: Enhanced repeat alert logic to properly handle first alert timing vs subsequent alerts
+
+### 📋 Technical Details
+- **Initial State Entry**: Shows notification but plays no sound
+- **First Alert**: Plays after 1 minute since command started
+- **Subsequent Alerts**: Continue every 60 seconds as before
+- **Logic Enhancement**: Improved `_check_command_running_repeat_alert()` method with proper first-alert timing
+
+---
+
 ## [2.0.3] - 2025-07-01
 
 ### 🛡️ CRITICAL - Fixed Segmentation Fault (Threading Safety)
