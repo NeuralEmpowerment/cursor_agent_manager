@@ -11,8 +11,11 @@ import cv2
 import numpy as np
 import os
 from datetime import datetime
+import argparse
 
-def capture_current_state():
+from display_capture import ScreenshotProvider
+
+def capture_current_state(display_index: int | None = None):
     """Capture current screenshot and show confidence against existing templates."""
     from agent_monitor_poc import (
         TEMPLATE_DIRECTORIES, STATE_TEMPLATE_MAPPING, load_templates_from_directories, 
@@ -20,7 +23,11 @@ def capture_current_state():
     )
     
     print("Capturing current state...")
-    screenshot = pyautogui.screenshot()
+    if display_index is not None:
+        provider = ScreenshotProvider(display_index=display_index)
+        screenshot = provider.screenshot()
+    else:
+        screenshot = pyautogui.screenshot()
     
     # Load existing templates
     state_templates = load_templates_from_directories(TEMPLATE_DIRECTORIES, STATE_TEMPLATE_MAPPING)
@@ -87,7 +94,7 @@ def suggest_action(detected_state, confidences, confidence_threshold, min_confid
         print("2. Ensure template captures the most distinctive UI element")
         print("3. Check that UI hasn't changed (dark mode, themes, etc.)")
 
-def save_as_template():
+def save_as_template(display_index: int | None = None):
     """Save current screenshot as a new template."""
     print("\n=== SAVE AS TEMPLATE ===")
     print("Available states:")
@@ -104,7 +111,11 @@ def save_as_template():
     state = state_map[choice]
     
     # Take screenshot
-    screenshot = pyautogui.screenshot()
+    if display_index is not None:
+        provider = ScreenshotProvider(display_index=display_index)
+        screenshot = provider.screenshot()
+    else:
+        screenshot = pyautogui.screenshot()
     
     # Create filename
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -127,6 +138,9 @@ def save_as_template():
     print("Restart the monitor to use the new template!")
 
 def main():
+    parser = argparse.ArgumentParser(description="Template Capture & Analysis Tool")
+    parser.add_argument("--display-index", type=int, default=None, help="Capture from specific display index")
+    args = parser.parse_args()
     print("Template Capture & Analysis Tool")
     print("=" * 40)
     print("(Press Ctrl+C anytime to exit)")
@@ -142,14 +156,14 @@ def main():
             
             if choice == '1':
                 try:
-                    state, confidences, threshold, min_gap = capture_current_state()
+                    state, confidences, threshold, min_gap = capture_current_state(args.display_index)
                     suggest_action(state, confidences, threshold, min_gap)
                 except Exception as e:
                     print(f"Error: {e}")
                     
             elif choice == '2':
                 try:
-                    save_as_template()
+                    save_as_template(args.display_index)
                 except Exception as e:
                     print(f"Error: {e}")
                     

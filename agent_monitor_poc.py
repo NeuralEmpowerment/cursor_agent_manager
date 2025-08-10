@@ -36,6 +36,7 @@ import objc
 from Foundation import NSObject, NSMakeRect, NSMakePoint, NSLayoutConstraint
 import signal
 import sys
+import argparse
 
 ########################################################
 # === Thread-Safe GUI Operations ===
@@ -206,6 +207,7 @@ COMMAND_RUNNING_ALERT_REPEAT_INTERVAL = 60  # Repeat command_running alert every
 # === Enhanced Telemetry with DI ===
 from container import initialize_telemetry_system
 from telemetry import EventType, TelemetryService
+from display_capture import ScreenshotProvider, list_displays
 
 # === Enhanced Console Output Utilities ===
 class DiagnosticOutput:
@@ -417,7 +419,7 @@ class StateDetector(Protocol):
 
 # === Enhanced Multi-Template Detection Engine ===
 class EnhancedTemplateMatchDetector:
-    def __init__(self, state_templates: dict, confidence_threshold=0.8, min_confidence_gap=0.1):
+    def __init__(self, state_templates: dict, confidence_threshold=0.8, min_confidence_gap=0.1, screenshot_provider: ScreenshotProvider | None = None):
         self.state_templates = state_templates
         self.confidence_threshold = confidence_threshold
         self.min_confidence_gap = min_confidence_gap
@@ -428,6 +430,7 @@ class EnhancedTemplateMatchDetector:
         self._last_state_change = 0
         self._min_state_change_interval = MIN_STATE_CHANGE_INTERVAL
         self._required_confirmations = REQUIRED_CONFIRMATIONS
+        self.screenshot_provider = screenshot_provider
         
         # Load all template images by state
         self.loaded_templates = {}
@@ -510,7 +513,10 @@ class EnhancedTemplateMatchDetector:
     def detect_state(self) -> str:
         try:
             # Take a screenshot
-            screenshot = pyautogui.screenshot()
+            if self.screenshot_provider is not None:
+                screenshot = self.screenshot_provider.screenshot()
+            else:
+                screenshot = pyautogui.screenshot()
             
             # Match templates for all states
             state_results = {}
@@ -670,9 +676,15 @@ class EnhancedTemplateMatchDetector:
 
 # === OCR Strategy ===
 class OCRDetector:
+    def __init__(self, screenshot_provider: ScreenshotProvider | None = None):
+        self.screenshot_provider = screenshot_provider
+
     def detect_state(self) -> str:
         try:
-            screenshot = ImageGrab.grab()
+            if self.screenshot_provider is not None:
+                screenshot = self.screenshot_provider.screenshot()
+            else:
+                screenshot = ImageGrab.grab()
             text = pytesseract.image_to_string(screenshot)
             # FIXME: These are not valid for idle states, to remove
             if "Start a new chat" in text or "Accept" in text:
@@ -704,10 +716,11 @@ class CommandExecutor:
 
 # === Cursor Agent Monitor ===
 class AgentMonitor:
-    def __init__(self, detectors: list, telemetry: LegacyTelemetryAdapter, executor: Optional[CommandExecutor] = None):
+    def __init__(self, detectors: list, telemetry: LegacyTelemetryAdapter, executor: Optional[CommandExecutor] = None, screenshot_provider: ScreenshotProvider | None = None):
         self.detectors = detectors
         self.telemetry = telemetry
         self.executor = executor
+        self.screenshot_provider = screenshot_provider
         self.state = AgentState.UNKNOWN
         self.muted = False
         self.running = True
@@ -816,12 +829,20 @@ class AgentMonitor:
         # If we just entered command_running state, set the start time
         if self.command_running_start_time is None:
             self.command_running_start_time = current_time
-            self.last_command_running_alert_time = current_time  # Count initial alert
+            # Don't set last_command_running_alert_time so first alert plays after 1 minute
             return
             
-        # Check if enough time has passed since last alert
-        time_since_last_alert = current_time - self.last_command_running_alert_time
-        if time_since_last_alert >= COMMAND_RUNNING_ALERT_REPEAT_INTERVAL:
+        # Check if enough time has passed since command started (for first alert) or since last alert (for subsequent alerts)
+        if self.last_command_running_alert_time == 0:
+            # First alert - check time since command started
+            time_since_command_started = current_time - self.command_running_start_time
+            should_alert = time_since_command_started >= COMMAND_RUNNING_ALERT_REPEAT_INTERVAL
+        else:
+            # Subsequent alerts - check time since last alert
+            time_since_last_alert = current_time - self.last_command_running_alert_time
+            should_alert = time_since_last_alert >= COMMAND_RUNNING_ALERT_REPEAT_INTERVAL
+            
+        if should_alert:
             # Play the command_running alert again
             self.sound_player.play_sound("command_running")
             self.last_command_running_alert_time = current_time
@@ -840,7 +861,10 @@ class AgentMonitor:
             return
 
         # Take screenshot once for all detectors
-        self.last_screenshot = pyautogui.screenshot()
+        if self.screenshot_provider is not None:
+            self.last_screenshot = self.screenshot_provider.screenshot()
+        else:
+            self.last_screenshot = pyautogui.screenshot()
         self.last_detection_rect = None
         
         detection_successful = False
@@ -968,12 +992,10 @@ class AgentMonitor:
                     self.last_stable_state = AgentState.COMMAND_RUNNING
                     self.last_notification_time = time.time()
                     
-                    # INITIAL NOTIFICATION for command execution
+                    # INITIAL NOTIFICATION for command execution (no sound - sound only after 1 minute)
                     ThreadSafeNotifier.notify("🔄 COMMAND EXECUTING - Monitor will alert after 1 minute", title="Agent Monitor - Command Started")
-                        
-                    if not self.muted:
-                        # Use the dedicated command_running sound (waiting tone)
-                        self.sound_player.play_sound("command_running")
+                    
+                    # Note: No immediate sound - sound will play after 1 minute via repeat alert system
             
             # Check for repeating command_running alerts (1-minute timeout)
             self._check_command_running_repeat_alert()
@@ -1148,6 +1170,11 @@ class ControlPanel(NSObject):
         self.settings_btn = create_button(self, "⚙️", 14)
         self.settings_btn.setTarget_(self)
         self.settings_btn.setAction_(objc.selector(self.toggleAlphaSlider_, signature=b"v@:"))
+
+        # Display chooser button (top right, left of settings)
+        self.display_btn = create_button(self, "🖥️", 14)
+        self.display_btn.setTarget_(self)
+        self.display_btn.setAction_(objc.selector(self.chooseDisplay_, signature=b"v@:"))
         
         # Alpha slider (hidden by default)
         self.alpha_slider = AppKit.NSSlider.alloc().init()
@@ -1197,6 +1224,12 @@ class ControlPanel(NSObject):
             self.settings_btn.trailingAnchor().constraintEqualToAnchor_constant_(self.content_view.trailingAnchor(), -padding),
             self.settings_btn.widthAnchor().constraintEqualToConstant_(32),
             self.settings_btn.heightAnchor().constraintEqualToConstant_(32),
+
+            # Display button - next to settings
+            self.display_btn.topAnchor().constraintEqualToAnchor_constant_(self.content_view.topAnchor(), padding),
+            self.display_btn.trailingAnchor().constraintEqualToAnchor_constant_(self.settings_btn.leadingAnchor(), -8),
+            self.display_btn.widthAnchor().constraintEqualToConstant_(32),
+            self.display_btn.heightAnchor().constraintEqualToConstant_(32),
 
             # Alpha slider - full width, hidden by default
             self.alpha_slider.topAnchor().constraintEqualToAnchor_constant_(self.title_label.bottomAnchor(), 8),
@@ -1282,6 +1315,21 @@ class ControlPanel(NSObject):
             self.stats_last_detection_label.setStringValue_(f"{last_detection_time}")
         
         self._updateDebugView_(None)
+
+        # Update display label in title (optional)
+        try:
+            if hasattr(self, 'display_btn') and hasattr(self, 'status_state_label') and hasattr(self, 'monitor'):
+                provider = getattr(self.monitor, 'screenshot_provider', None)
+                if provider is not None:
+                    info = provider.current_display()
+                    if info is not None:
+                        subtitle = f"Display {info.index}"
+                    else:
+                        subtitle = "Main display"
+                    # Set window title to include display for quick visibility
+                    self.window.setTitle_(f"Cursor Agent Monitor — {subtitle}")
+        except Exception:
+            pass
 
     def processNotifications_(self, timer):
         """Process queued notifications on main thread. Called by timer every 100ms."""
@@ -1538,6 +1586,28 @@ class ControlPanel(NSObject):
         box.setBoxType_(AppKit.NSBoxPrimary)
         return box
 
+    def chooseDisplay_(self, sender):
+        try:
+            provider = getattr(self.monitor, 'screenshot_provider', None)
+            if provider is None:
+                return
+            displays = provider.list_display_infos()
+            if not displays:
+                return
+            alert = AppKit.NSAlert.alloc().init()
+            alert.setMessageText_("Choose Display")
+            alert.setInformativeText_("Select the macOS display to monitor.")
+            for d in displays:
+                title = f"{d.index}: {d.width}x{d.height}{' • Main' if d.is_main else ''}"
+                alert.addButtonWithTitle_(title)
+            result = alert.runModal()
+            # Buttons return 1000 + index
+            selected = int(result) - 1000
+            if 0 <= selected < len(displays):
+                provider.select_display_by_index(selected)
+        except Exception as e:
+            print(f"[ERROR] Display selection failed: {e}")
+
 # === Service Runner ===
 class AgentWatcherService:
     def __init__(self, monitor: AgentMonitor):
@@ -1576,10 +1646,23 @@ def main():
     print("")
     
     try:
+        parser = argparse.ArgumentParser(description="Cursor Agent Monitor")
+        parser.add_argument("--list-displays", action="store_true", help="List available displays and exit")
+        parser.add_argument("--display-index", type=int, default=None, help="Select display index to capture")
+        args, _ = parser.parse_known_args()
+
         # Initialize NSApplication
         app = AppKit.NSApplication.sharedApplication()
         app.setActivationPolicy_(AppKit.NSApplicationActivationPolicyRegular)
         
+        if args.list_displays:
+            infos = list_displays()
+            print("Available displays:")
+            for d in infos:
+                suffix = " (main)" if d.is_main else ""
+                print(f"  {d.index}: id={d.id} {d.width}x{d.height}{suffix}")
+            return
+
         # Initialize telemetry with dependency injection
         container = initialize_telemetry_system()
         telemetry_service = container.telemetry_service()
@@ -1588,6 +1671,7 @@ def main():
         # Initialize components
         telemetry = LegacyTelemetryAdapter(telemetry_service)
         executor = CommandExecutor() if COMMAND_QUEUE_ENABLED else None
+        screenshot_provider = ScreenshotProvider(display_index=args.display_index)
 
         # Load templates from organized directories
         state_templates = load_templates_from_directories(TEMPLATE_DIRECTORIES, STATE_TEMPLATE_MAPPING)
@@ -1608,14 +1692,15 @@ def main():
             detectors = [EnhancedTemplateMatchDetector(
                 state_templates,
                 confidence_threshold=CONFIDENCE_THRESHOLD,
-                min_confidence_gap=MIN_CONFIDENCE_GAP
+                min_confidence_gap=MIN_CONFIDENCE_GAP,
+                screenshot_provider=screenshot_provider
             )]
         
         if OCR_ENABLED:
-            detectors.append(OCRDetector())
+            detectors.append(OCRDetector(screenshot_provider=screenshot_provider))
 
         # Create and start the monitor
-        monitor = AgentMonitor(detectors, telemetry, executor)
+        monitor = AgentMonitor(detectors, telemetry, executor, screenshot_provider=screenshot_provider)
         service = AgentWatcherService(monitor)
         service.start()
 
